@@ -97,8 +97,6 @@ class Impl {
     std::optional<std::size_t> getCopyWork() {
         auto startIdx = mCopyIdx.load();
         if (startIdx >= mKvs.size()) {
-            // Copy is already done.
-            mCopied = true;
             return std::nullopt;
         }
 
@@ -158,6 +156,7 @@ class Impl {
     }
 
     void doCopyWork() {
+
         const auto workStartIdxOpt = getCopyWork();
         if (!workStartIdxOpt.has_value()) {
             // No work to do.
@@ -168,6 +167,10 @@ class Impl {
         for (auto i = workStartIdx; i < workStartIdx + COPY_CHUNK_SIZE; i++) {
             doCopy(i);
         }
+
+		if (workStartIdx + COPY_CHUNK_SIZE == mKvs.size()) {
+			mCopied = true;
+		}
     }
 
     // According to the spec this should return: pair<iterator,bool> insert (
@@ -240,7 +243,15 @@ class Impl {
             }
         }
     }
-    int at(const int key) const {
+    int at(const int key) {
+        if (mCopied) {
+            // Not possible to be copied and not have a nextKvs, because
+            // otherwise where did we copy everything into.
+            assert(nextKvs != nullptr);
+            return nextKvs.load()->at(key);
+        }
+
+        mNumReaders++;
         int slot = hash(key, mKvs.size());
         while (true) {
             const auto &d = mKvs[slot];
@@ -248,10 +259,15 @@ class Impl {
             if (currentKeyValue->mValue == key && currentKeyValue->alive()) {
                 auto value = d.mValue.load();
                 if (value->copied()) {
-                    if (nextKvs == nullptr)
+                    if (nextKvs == nullptr) {
+                        mNumReaders--;
                         throw std::out_of_range("Unable to find key");
-                    else
-                        return nextKvs.load()->at(key);
+                    } else {
+                        auto result = nextKvs.load()->at(key);
+                        mNumReaders--;
+						return result;
+
+                    }
                 }
                 // TODO: I think we need to check here if what we load from
                 // value is EMPTY, because it could be if another thread inserts
@@ -260,10 +276,15 @@ class Impl {
                 return value->mValue;
             }
             if (currentKeyValue->empty() || currentKeyValue->copied()) {
-                if (nextKvs == nullptr)
+                if (nextKvs == nullptr) {
+                    mNumReaders--;
                     throw std::out_of_range("Unable to find key");
-                else
-                    return nextKvs.load()->at(key);
+                } else {
+
+                    auto result = nextKvs.load()->at(key);
+                    mNumReaders--;
+                    return result;
+                }
             }
             slot = clip(slot + 1);
         }
@@ -271,6 +292,12 @@ class Impl {
     }
 
     Impl *getNextKvs() const { return nextKvs.load(); }
+
+    bool copied() const { return mCopied; }
+
+	bool hasActiveReaders()const {
+		return mNumReaders == 0;
+	}
 
   private:
     inline static const std::size_t COPY_CHUNK_SIZE = 8;
@@ -285,7 +312,9 @@ class Impl {
     std::vector<KeyValuePair> mKvs;
     std::atomic<Impl *> nextKvs = nullptr;
     std::atomic<std::size_t> mCopyIdx;
-    bool mCopied = false;
+    std::atomic<std::size_t> mNumReaders = 0;
+	// ZZZ: Why does this need to be volatile.
+    volatile bool mCopied = false;
 };
 
 class ConcurrentUnorderedMap {
@@ -295,6 +324,23 @@ class ConcurrentUnorderedMap {
     std::atomic<Impl *> head;
 
     int insert(const std::pair<int, int> &val) {
+		// Surgically replace the head.
+        auto headValue = head.load();
+        auto nextKvs = headValue->getNextKvs();
+        // if (nextKvs != nullptr && headValue->copied() && !headValue->hasActiveReaders()) {
+        if (nextKvs != nullptr && headValue->copied() ) {
+        // if (nextKvs != nullptr && headValue->copied()) {
+            // The current head is dead, since it's been copied into the kvs.
+            // So we need to
+			auto success = head.compare_exchange_strong(headValue, nextKvs);
+			if (success) {
+				// We won so it's out responsibility to clean up the old Kvs
+				// TODO: Will need to put this back.
+				delete headValue;/* ; */
+
+			}
+        }
+
         return head.load()->insert(val);
     }
 
