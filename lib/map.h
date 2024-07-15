@@ -20,7 +20,7 @@ inline int hash(const int key, const int capacity) { return key % capacity; }
 
 class Map {
   public:
-    Map(int capacity = 100)
+    Map(int capacity = 64)
         : mCapacity(capacity), mData(std::vector<KeyValuePair>(capacity)) {}
 
     uint64_t size() const { return mSize.load(); }
