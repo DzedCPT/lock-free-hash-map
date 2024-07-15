@@ -27,7 +27,7 @@ class DataWrapper {
         return !(mState == ALIVE || mState == COPIED_DEAD ||
                  mState == COPIED_ALIVE);
     }
-    bool copied() const { return mState == COPIED_DEAD; }
+    bool dead() const { return mState == COPIED_DEAD; }
     bool alive() const { return mState == ALIVE; }
     int data() const { return mData; }
 
@@ -117,7 +117,7 @@ class KeyValueStore {
             const auto currentKeyValue = d.key();
             if (currentKeyValue->data() == key && currentKeyValue->alive()) {
                 auto value = d.value();
-                if (value->copied()) {
+                if (value->dead()) {
                     if (mNextKvs == nullptr) {
                         // TODO: This currently won't correctly decrease the
                         // number of readers.
@@ -133,7 +133,7 @@ class KeyValueStore {
                 // been written into place by the other thread.
                 return value->data();
             }
-            if (currentKeyValue->empty() || currentKeyValue->copied()) {
+            if (currentKeyValue->empty() || currentKeyValue->dead()) {
                 if (mNextKvs == nullptr) {
                     throw std::out_of_range("Unable to find key");
                 } else {
@@ -201,7 +201,7 @@ class KeyValueStore {
 
         Slot *slot = &mKvs[idx];
         auto key = slot->key();
-        assert(!key->copied());
+        assert(!key->dead());
 
         // Let's see if we can put a COPIED state into an EMPTY key:
         if (key->empty()) {
@@ -219,8 +219,8 @@ class KeyValueStore {
 
             // Some assertions for my sanity.
             assert(!slot->key()->empty());
-            assert(!slot->key()->copied());
-            assert(!value->copied());
+            assert(!slot->key()->dead());
+            assert(!value->dead());
             assert(mNextKvs != nullptr);
 
             if (value->empty()) {
