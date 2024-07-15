@@ -18,28 +18,31 @@ class KeyValuePair {
     }
 };
 
-inline int hash(const int key, const int capacity) { return key % capacity; }
+inline int hash(const int key, const int capacity) {
+	// ZZZ: This isn't even a hash function!
+    return key >> (capacity - 1);
+}
 
 class ConcurrentUnorderedMap {
   public:
-    ConcurrentUnorderedMap(int bucketCountExp = 5)
-        : mBucketCountExp(bucketCountExp),
-          mData(std::vector<KeyValuePair>(std::pow(2, bucketCountExp))),
-          mKeyRangeMask(std::numeric_limits<unsigned int>::max() >>
-                    ((sizeof(unsigned int) * 8) - (mBucketCountExp + 1))) {}
+    typedef std::size_t size_type;
+
+    ConcurrentUnorderedMap(int exp = 5) : mCapacity(std::pow(2, exp)) {
+        mData = std::vector<KeyValuePair>(mCapacity);
+    }
 
     uint64_t size() const { return mSize.load(); }
 
     bool empty() const { return mSize.load() == 0; }
 
-    std::size_t bucket_count() const { return std::pow(2, mBucketCountExp); }
+    std::size_t bucket_count() const { return mCapacity; }
 
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
     int insert(const std::pair<int, int> &val) {
         int putKey = val.first;
         int putValue = val.second;
-        int slot = hash(putKey, mBucketCountExp);
+        int slot = hash(putKey, mCapacity);
         auto *pair = &mData[slot];
         while (true) {
             auto &k = pair->mKey;
@@ -61,7 +64,7 @@ class ConcurrentUnorderedMap {
                 break;
             }
 
-            slot = (slot + 1) & mKeyRangeMask;
+            slot = (slot + 1) & (mCapacity - 1);
             pair = &mData[slot];
         }
 
@@ -81,7 +84,7 @@ class ConcurrentUnorderedMap {
         }
     }
     int at(const int key) const {
-        int slot = hash(key, mBucketCountExp);
+        int slot = hash(key, mCapacity);
         while (true) {
             const auto &d = mData[slot];
             const auto currentKeyValue = d.mKey.load();
@@ -91,7 +94,7 @@ class ConcurrentUnorderedMap {
             if (currentKeyValue == mSentryValue) {
                 throw std::out_of_range("Unables to find key");
             }
-            slot = (slot + 1) & mKeyRangeMask;
+            slot = (slot + 1) & (mCapacity - 1);
         }
         return mData[slot].mValue.load();
     }
@@ -114,8 +117,7 @@ class ConcurrentUnorderedMap {
   private:
     std::atomic<uint64_t> mSize{};
     std::vector<KeyValuePair> mData;
-    int mBucketCountExp;
-    unsigned int mKeyRangeMask;
+    size_type mCapacity;
     int mSentryValue = -1;
 };
 
