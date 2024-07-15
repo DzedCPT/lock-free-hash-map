@@ -2,3 +2,7 @@ ignore
 build
 .ccls-cache/
 compile_commands.json
+.idea/
+.ccls-cache/
+.vscode/
+.cache/
