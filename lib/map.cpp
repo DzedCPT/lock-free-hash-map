@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace cmap {
+
 typedef std::size_t size_t;
 
 enum DataState {
@@ -555,3 +557,4 @@ template class ConcurrentUnorderedMap<int, int>;
 template class ConcurrentUnorderedMap<int, float>;
 template class ConcurrentUnorderedMap<float, int>;
 template class ConcurrentUnorderedMap<std::vector<bool>, float>;
+}

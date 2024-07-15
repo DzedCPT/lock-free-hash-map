@@ -9,6 +9,8 @@
 #include <unordered_set>
 #include <vector>
 
+using namespace cmap;
+
 std::random_device dev;
 // Let's seed this to make tests reproducible-ish.
 std::mt19937 rng(0);
