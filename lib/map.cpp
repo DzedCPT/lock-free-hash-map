@@ -113,7 +113,6 @@ class KeyValueStore {
     // TODO: According to the spec this should return: size_t
     void erase(K const key) {
         if (eraseKvs(key)) {
-            mSize--;
             return;
         }
         if (mNextKvs.load() != nullptr) mNextKvs.load()->erase(key);
@@ -412,8 +411,7 @@ class KeyValueStore {
 
             auto const valueData = slotValue->data();
             if (slot.casValue(slotValue, tombStone)) {
-                // TODO: This shouldn't caus a segfault.
-                // delete slotValue;
+                mSize--;
                 return true;
             }
         }
