@@ -19,7 +19,7 @@ class KeyValuePair {
 };
 
 inline int hash(const int key, const int capacity) {
-	// ZZZ: This isn't even a hash function!
+    // ZZZ: This isn't even a hash function!
     return key >> (capacity - 1);
 }
 
@@ -64,7 +64,7 @@ class ConcurrentUnorderedMap {
                 break;
             }
 
-            slot = (slot + 1) & (mCapacity - 1);
+			slot = clip(slot+1);
             pair = &mData[slot];
         }
 
@@ -94,7 +94,7 @@ class ConcurrentUnorderedMap {
             if (currentKeyValue == mSentryValue) {
                 throw std::out_of_range("Unables to find key");
             }
-            slot = (slot + 1) & (mCapacity - 1);
+			slot = clip(slot+1);
         }
         return mData[slot].mValue.load();
     }
@@ -115,6 +115,10 @@ class ConcurrentUnorderedMap {
     }
 
   private:
+    size_type clip(const size_type slot) const {
+		// TODO: Add comment here on how this works?
+        return slot & (mCapacity - 1);
+    }
     std::atomic<uint64_t> mSize{};
     std::vector<KeyValuePair> mData;
     size_type mCapacity;
