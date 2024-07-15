@@ -1,6 +1,7 @@
 #ifndef MAP_H
 #define MAP_H
 
+#include <limits>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -24,16 +25,14 @@ class ConcurrentUnorderedMap {
     ConcurrentUnorderedMap(int bucketCountExp = 5)
         : mBucketCountExp(bucketCountExp),
           mData(std::vector<KeyValuePair>(std::pow(2, bucketCountExp))),
-          mBetterName(std::numeric_limits<unsigned int>::max() >>
-                      ((sizeof(unsigned int) * 8) - (mBucketCountExp + 1))) {}
+          mKeyRangeMask(std::numeric_limits<unsigned int>::max() >>
+                    ((sizeof(unsigned int) * 8) - (mBucketCountExp + 1))) {}
 
     uint64_t size() const { return mSize.load(); }
 
     bool empty() const { return mSize.load() == 0; }
 
-	std::size_t bucket_count() const {
-		return mCapacity;
-	}
+    std::size_t bucket_count() const { return std::pow(2, mBucketCountExp); }
 
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
@@ -62,7 +61,7 @@ class ConcurrentUnorderedMap {
                 break;
             }
 
-            slot = (slot + 1) & mBetterName;
+            slot = (slot + 1) & mKeyRangeMask;
             pair = &mData[slot];
         }
 
@@ -92,7 +91,7 @@ class ConcurrentUnorderedMap {
             if (currentKeyValue == mSentryValue) {
                 throw std::out_of_range("Unables to find key");
             }
-            slot = (slot + 1) & mBetterName;
+            slot = (slot + 1) & mKeyRangeMask;
         }
         return mData[slot].mValue.load();
     }
@@ -116,7 +115,7 @@ class ConcurrentUnorderedMap {
     std::atomic<uint64_t> mSize{};
     std::vector<KeyValuePair> mData;
     int mBucketCountExp;
-    unsigned int mBetterName;
+    unsigned int mKeyRangeMask;
     int mSentryValue = -1;
 };
 
