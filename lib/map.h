@@ -9,8 +9,9 @@
 #include <unordered_map>
 #include <vector>
 
+typedef std::size_t size_t;
 const float MAX_LOAD_FACTOR = 0.5;
-const std::size_t COPY_CHUNK_SIZE = 8;
+const size_t COPY_CHUNK_SIZE = 8;
 
 enum DataState {
     EMPTY,
@@ -72,7 +73,7 @@ class KeyValueStore {
     KeyValueStore(int size) : mKvs(std::vector<Slot>(size)) {}
 
     uint64_t size() const {
-        std::size_t s = mSize;
+        size_t s = mSize;
         if (mNextKvs != nullptr) {
             s += mNextKvs.load()->size();
         }
@@ -88,7 +89,7 @@ class KeyValueStore {
         return empty && next_empty;
     }
 
-    std::size_t bucket_count() const {
+    size_t bucket_count() const {
         if (mNextKvs != nullptr) {
             return mNextKvs.load()->bucket_count();
         }
@@ -113,13 +114,13 @@ class KeyValueStore {
         }
     }
 
-    std::optional<std::size_t> getCopyWork() {
+    std::optional<size_t> getCopyWork() {
         auto startIdx = mCopyIdx.load();
         if (startIdx >= mKvs.size()) {
             return std::nullopt;
         }
 
-        std::size_t endIdx = startIdx + COPY_CHUNK_SIZE;
+        size_t endIdx = startIdx + COPY_CHUNK_SIZE;
         if (!mCopyIdx.compare_exchange_strong(startIdx, endIdx)) {
             // Another thread claimed this work before us.
             return std::nullopt;
@@ -127,7 +128,7 @@ class KeyValueStore {
         return startIdx;
     }
 
-    void doCopy(std::size_t slot) {
+    void doCopy(size_t slot) {
 
         DataWrapper *copiedMarker = new DataWrapper(COPIED);
         // TODO: This loop should never try twice, so you could assert that.
@@ -312,7 +313,7 @@ class KeyValueStore {
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
-    std::size_t clip(const size_t slot) const {
+    size_t clip(const size_t slot) const {
         // TODO: Add comment here on how this works?
         return slot & (mKvs.size() - 1);
     }
@@ -322,8 +323,8 @@ class KeyValueStore {
     std::atomic<uint64_t> mSize{};
     std::vector<Slot> mKvs;
     std::atomic<KeyValueStore *> mNextKvs = nullptr;
-    std::atomic<std::size_t> mCopyIdx;
-    std::atomic<std::size_t> mNumReaders = 0;
+    std::atomic<size_t> mCopyIdx;
+    std::atomic<size_t> mNumReaders = 0;
     // ZZZ: Why does this need to be volatile.
     volatile bool mCopied = false;
 };
@@ -357,14 +358,14 @@ class ConcurrentUnorderedMap {
 
     int at(const int key) const { return head.load()->at(key); }
 
-    std::size_t bucket_count() const { return head.load()->bucket_count(); }
+    size_t bucket_count() const { return head.load()->bucket_count(); }
 
-    std::size_t size() const { return head.load()->size(); }
+    size_t size() const { return head.load()->size(); }
 
-    std::size_t empty() const { return head.load()->empty(); }
+    size_t empty() const { return head.load()->empty(); }
 
-    std::size_t depth() const {
-        std::size_t depth = 0;
+    size_t depth() const {
+        size_t depth = 0;
         KeyValueStore *x = head;
         while (true) {
             if (x->getNextKvs() == nullptr) {
