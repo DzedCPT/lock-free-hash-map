@@ -91,74 +91,25 @@ class KeyValueStore {
         return mKvs.size();
     }
 
-    // According to the spec this should return: pair<iterator,bool> insert (
-    // const value_type& val );
+    // TODO: According to the spec this should return: pair<iterator,bool>
+    // insert ( const value_type& val );
     int insert(const std::pair<int, int> &val) {
         if (resizeRequired()) {
-            allocateNewKvs();
+            newKvs();
         }
+
+        // Resized table has been allocated so we should instead insert into
+        // that.
         if (mNextKvs != nullptr) {
+            // We ask each inserter to also do a little work copying data to the
+            // new Kvs.
             copyBatch();
             return mNextKvs.load()->insert(val);
         }
-        const DataWrapper *putKey = new DataWrapper(val.first);
-        const DataWrapper *putValue = new DataWrapper(val.second);
-        int slot = hash(putKey->data(), mKvs.size());
-        auto *pair = &mKvs[slot];
 
-        while (true) {
-            const DataWrapper *k = pair->key();
-            // Check if we've found an open space:
-            if (k->empty()) {
-                // Not 100% sure what the difference is here between _strong and
-                // _weak:
-                // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
-
-                // ZZZ: Pull some of this below out in multiple lines.
-                if (auto success = pair->casKey(k, putKey)) {
-                    ++mSize;
-                    break;
-                }
-            }
-
-            // Maybe the key is already inserted?
-            // TODO: Reason about if it's safe to dereference the key here?
-            // I think it is because key's in a single slot should never change.
-            if (k->data() == putKey->data()) {
-                // The current key has the same value as the one were trying to
-                // insert. So we can just use the current key but need to not
-                // leak the memory of the newly allocated key.
-                delete putKey;
-                break;
-            }
-
-            slot = clip(slot + 1);
-            pair = &mKvs[slot];
-        }
-
-        while (true) {
-            const DataWrapper *v = pair->value();
-
-            // TODO: Is the dereference safe?
-            // TODO: Why is this safe! Maybe it isn't maybe it is.
-            if (v->data() == putValue->data()) {
-                // Value already in place so we're done.
-                delete putValue;
-                return v->data();
-            }
-
-            // const int currentValue = v->mValue;
-            if (auto success = pair->casValue(v, putValue)) {
-                // We replaced the old value with a new one, so cleanup the old
-                // value.
-                // TODO: How should I cleanup v here?
-                // if (currentValue != EMPTY) {
-                //     delete currentValue;
-                // }
-                return putValue->data();
-            }
-        }
+        return kvsInsert(val);
     }
+
     int at(const int key) {
         if (mCopied) {
             // Not possible to be copied and not have a nextKvs, because
@@ -213,7 +164,7 @@ class KeyValueStore {
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
-    void allocateNewKvs() {
+    void newKvs() {
 
         // You could check here if anybody else has already started a resize and
         // if so not allocate memory.
@@ -250,20 +201,20 @@ class KeyValueStore {
         auto key = slot->key();
         assert(!key->copied());
 
-		// Let's see if we can put an COPIED state into an EMPTY key:
+        // Let's see if we can put an COPIED state into an EMPTY key:
         if (key->empty()) {
             if (slot->casKey(key, copiedMarker))
                 return;
-			// Key was EMPTY when we last checked, but not by the time the
-			// cas was attempted so we need to copy the value into the new
-			// kvs.
+            // Key was EMPTY when we last checked, but not by the time the
+            // cas was attempted so we need to copy the value into the new
+            // kvs.
         }
 
-		// key wasn't EMPTY so we need to forward the value into the new table.
+        // key wasn't EMPTY so we need to forward the value into the new table.
         while (true) {
             auto value = slot->value();
 
-			// Some assertions for my sanity.
+            // Some assertions for my sanity.
             assert(!slot->key()->empty());
             assert(!slot->key()->copied());
             assert(!value->copied());
@@ -278,7 +229,7 @@ class KeyValueStore {
                 return;
             }
         }
-		assert(false);
+        assert(false);
     }
 
     void copyBatch() {
@@ -298,6 +249,69 @@ class KeyValueStore {
             mCopied = true;
 
         assert(endIdx <= mKvs.size());
+    }
+
+    Slot *insertKey(int key) {
+        const DataWrapper *desiredKey = new DataWrapper(key);
+        int idx = hash(desiredKey->data(), mKvs.size());
+        auto *slot = &mKvs[idx];
+
+        while (true) {
+            const DataWrapper *currentKey = slot->key();
+            // Check if we've found an open space:
+            if (currentKey->empty()) {
+                // Not 100% sure what the difference is here between _strong and
+                // _weak:
+                // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
+
+                if (slot->casKey(currentKey, desiredKey)) {
+                    // yay!! We inserted the key.
+                    ++mSize;
+                    break;
+                }
+            }
+
+            // Maybe the key is already inserted?
+            // TODO: Reason about if it's safe to dereference the key here?
+            // I think it is because key's in a single slot should never change.
+            if (currentKey->data() == desiredKey->data()) {
+                // The current key has the same value as the one were trying to
+                // insert. So we can just use the current key but need to not
+                // leak the memory of the newly allocated key.
+                delete desiredKey;
+                break;
+            }
+
+            // reprobe
+            idx = clip(idx + 1);
+            slot = &mKvs[idx];
+        }
+        return slot;
+    }
+
+    int insertValue(Slot *slot, int value) {
+        const DataWrapper *desiredValue = new DataWrapper(value);
+        while (true) {
+            const DataWrapper *currentValue = slot->value();
+
+            // TODO: Is the dereference safe?
+            // TODO: Why is this safe! Maybe it isn't maybe it is.
+            if (currentValue->data() == desiredValue->data()) {
+                // Value already in place so we're done.
+                delete desiredValue;
+                return currentValue->data();
+            }
+
+            if (auto success = slot->casValue(currentValue, desiredValue)) {
+                delete currentValue;
+                return desiredValue->data();
+            }
+        }
+    }
+
+    int kvsInsert(const std::pair<int, int> &val) {
+        Slot *slot = insertKey(val.first);
+        return insertValue(slot, val.second);
     }
 
     bool resizeRequired() const {
