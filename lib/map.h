@@ -33,21 +33,21 @@ class ConcurrentUnorderedMap {
     typedef std::size_t size_type;
 
     ConcurrentUnorderedMap(int exp = 5)
-        : mData(std::vector<KeyValuePair>(std::pow(2, exp))) {}
+        : mKvs(std::vector<KeyValuePair>(std::pow(2, exp))) {}
 
     uint64_t size() const { return mSize.load(); }
 
     bool empty() const { return mSize.load() == 0; }
 
-    std::size_t bucket_count() const { return mData.size(); }
+    std::size_t bucket_count() const { return mKvs.size(); }
 
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
     int insert(const std::pair<int, int> &val) {
         const int *putKey = new int(val.first);
         const int *putValue = new int(val.second);
-        int slot = hash(*putKey, mData.size());
-        auto *pair = &mData[slot];
+        int slot = hash(*putKey, mKvs.size());
+        auto *pair = &mKvs[slot];
 
         while (true) {
             auto &k = pair->mKey;
@@ -75,7 +75,7 @@ class ConcurrentUnorderedMap {
             }
 
             slot = clip(slot + 1);
-            pair = &mData[slot];
+            pair = &mKvs[slot];
         }
 
         while (true) {
@@ -101,9 +101,9 @@ class ConcurrentUnorderedMap {
         }
     }
     int at(const int key) const {
-        int slot = hash(key, mData.size());
+        int slot = hash(key, mKvs.size());
         while (true) {
-            const auto &d = mData[slot];
+            const auto &d = mKvs[slot];
             const auto currentKeyValue = d.mKey.load();
             if (*currentKeyValue == key) {
                 return *d.mValue.load();
@@ -117,7 +117,7 @@ class ConcurrentUnorderedMap {
         // EMPTY, because it could be if another thread inserts a key before
         // this thread looksup the key but the value hasn't been written into
         // place by the other thread.
-        return *mData[slot].mValue.load();
+        return *mKvs[slot].mValue.load();
     }
 
     // This should be templated to handle different types of maps.
@@ -138,15 +138,12 @@ class ConcurrentUnorderedMap {
   private:
     size_type clip(const size_type slot) const {
         // TODO: Add comment here on how this works?
-        return slot & (mData.size() - 1);
+        return slot & (mKvs.size() - 1);
     }
     std::atomic<uint64_t> mSize{};
-    std::size_t mIdx;
-    // Maybe these need better names here?
-    // std::atomic<std::shared_ptr<std::vector<KeyValuePair>>> mSmallerKvs;
-    // std::atomic<std::shared_ptr<std::vector<KeyValuePair>>> mBiggerKvs;
 
-    std::vector<KeyValuePair> mData;
+    std::vector<KeyValuePair> mKvs;
+
 };
 
 #endif // MAP_H
