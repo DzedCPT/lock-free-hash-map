@@ -112,8 +112,9 @@ class Impl {
                 // _weak:
                 // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
 
-				// ZZZ: Pull some of this below out in multiple lines.
-                if (auto success = pair->mKey.compare_exchange_strong(k, putKey)) {
+                // ZZZ: Pull some of this below out in multiple lines.
+                if (auto success =
+                        pair->mKey.compare_exchange_strong(k, putKey)) {
                     ++mSize;
                     break;
                 }
@@ -135,10 +136,10 @@ class Impl {
         }
 
         while (true) {
-            const Node* v = pair->mValue.load();
+            const Node *v = pair->mValue.load();
 
             // TODO: Is the dereference safe?
-			// TODO: Why is this safe! Maybe it isn't maybe it is.
+            // TODO: Why is this safe! Maybe it isn't maybe it is.
             if (v->mValue == putValue->mValue) {
                 // Value already in place so we're done.
                 delete putValue;
@@ -150,7 +151,7 @@ class Impl {
                     pair->mValue.compare_exchange_strong(v, putValue)) {
                 // We replaced the old value with a new one, so cleanup the old
                 // value.
-				// TODO: How should I cleanup v here?
+                // TODO: How should I cleanup v here?
                 // if (currentValue != EMPTY) {
                 //     delete currentValue;
                 // }
@@ -170,7 +171,7 @@ class Impl {
                 // been written into place by the other thread.
                 return d.mValue.load()->mValue;
             }
-            if (currentKeyValue->empty() ) {
+            if (currentKeyValue->empty()) {
                 if (nextKvs == nullptr)
                     throw std::out_of_range("Unable to find key");
                 else
@@ -180,6 +181,8 @@ class Impl {
         }
         assert(false);
     }
+
+    Impl *getNextKvs() const { return nextKvs.load(); }
 
   private:
     float mMaxLoad = 0.5;
@@ -213,6 +216,19 @@ class ConcurrentUnorderedMap {
     std::size_t size() const { return head.load()->size(); }
 
     std::size_t empty() const { return head.load()->empty(); }
+
+    std::size_t depth() const {
+        std::size_t depth = 0;
+        Impl *x = head;
+        while (true) {
+            if (x->getNextKvs() == nullptr) {
+                break;
+            }
+            x = x->getNextKvs();
+            depth++;
+        }
+        return depth;
+    }
 
     // This should be templated to handle different types of maps.
     bool operator==(const std::unordered_map<int, int> &other) const {
