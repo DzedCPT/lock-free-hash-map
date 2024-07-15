@@ -33,21 +33,27 @@ class ConcurrentUnorderedMap {
     typedef std::size_t size_type;
 
     ConcurrentUnorderedMap(int exp = 5)
-        : mKvs(std::vector<KeyValuePair>(std::pow(2, exp))) {}
+        : mKvs({std::make_shared<std::vector<KeyValuePair>>(
+              std::vector<KeyValuePair>(std::pow(2, exp)))}) {}
 
     uint64_t size() const { return mSize.load(); }
 
     bool empty() const { return mSize.load() == 0; }
 
-    std::size_t bucket_count() const { return mKvs.size(); }
+    std::size_t bucket_count() const {
+        // TODO: Might need to add a check here to see if the vector is locked
+        *mKvs.back();
+        return mKvs.back()->size();
+    }
 
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
     int insert(const std::pair<int, int> &val) {
         const int *putKey = new int(val.first);
         const int *putValue = new int(val.second);
-        int slot = hash(*putKey, mKvs.size());
-        auto *pair = &mKvs[slot];
+        auto kvs = mKvs.back();
+        int slot = hash(*putKey, kvs->size());
+        auto *pair = &kvs->at(slot);
 
         while (true) {
             auto &k = pair->mKey;
@@ -75,7 +81,7 @@ class ConcurrentUnorderedMap {
             }
 
             slot = clip(slot + 1);
-            pair = &mKvs[slot];
+            pair = &kvs->at(slot);
         }
 
         while (true) {
@@ -101,9 +107,10 @@ class ConcurrentUnorderedMap {
         }
     }
     int at(const int key) const {
-        int slot = hash(key, mKvs.size());
+        const auto kvs = mKvs.back();
+        int slot = hash(key, kvs->size());
         while (true) {
-            const auto &d = mKvs[slot];
+            const auto &d = kvs->at(slot);
             const auto currentKeyValue = d.mKey.load();
             if (*currentKeyValue == key) {
                 return *d.mValue.load();
@@ -117,7 +124,7 @@ class ConcurrentUnorderedMap {
         // EMPTY, because it could be if another thread inserts a key before
         // this thread looksup the key but the value hasn't been written into
         // place by the other thread.
-        return *mKvs[slot].mValue.load();
+        return *kvs->at(slot).mValue.load();
     }
 
     // This should be templated to handle different types of maps.
@@ -138,12 +145,11 @@ class ConcurrentUnorderedMap {
   private:
     size_type clip(const size_type slot) const {
         // TODO: Add comment here on how this works?
-        return slot & (mKvs.size() - 1);
+        return slot & (mKvs.back()->size() - 1);
     }
     std::atomic<uint64_t> mSize{};
 
-    std::vector<KeyValuePair> mKvs;
-
+    std::vector<std::shared_ptr<std::vector<KeyValuePair>>> mKvs;
 };
 
 #endif // MAP_H
