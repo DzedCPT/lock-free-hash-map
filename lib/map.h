@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-enum NodeState {
+enum DataState {
     EMPTY,
     ALIVE,
     COPIED,
@@ -18,7 +18,7 @@ enum NodeState {
 class DataWrapper {
   public:
     DataWrapper(int value) : mData(value), mState(ALIVE) {}
-    DataWrapper(NodeState state) : mData(0), mState(state) {}
+    DataWrapper(DataState state) : mData(0), mState(state) {}
 
     bool empty() const { return mState == EMPTY; }
     bool copied() const { return mState == COPIED; }
@@ -27,7 +27,7 @@ class DataWrapper {
 
   private:
     const int mData = 0;
-    NodeState mState = EMPTY;
+    DataState mState = EMPTY;
 };
 
 class Slot {
