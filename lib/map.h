@@ -1,18 +1,19 @@
 #ifndef MAP_H
 #define MAP_H
 
+#include <iostream>
 #include <limits>
 #include <list>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
+// TODO: Add some comments here on what these are!
 inline const static int *EMPTY = new int(42);
 inline const static int *TOMBSTONE = new int(42);
 
 class KeyValuePair {
   public:
-    // TODO: Add some comments here on what these are!
 
     std::atomic<const int *> mKey{};
     std::atomic<const int *> mValue{};
@@ -24,34 +25,56 @@ class KeyValuePair {
 };
 
 inline int hash(const int key, const int capacity) {
-    // ZZZ: This isn't even a hash function!
+    // TODO: Add a real hash function.
     return key >> (capacity - 1);
 }
 
-class ConcurrentUnorderedMap {
+class Impl {
   public:
     typedef std::size_t size_type;
 
-    ConcurrentUnorderedMap(int exp = 5)
-        : mKvs({std::make_shared<std::vector<KeyValuePair>>(
-              std::vector<KeyValuePair>(std::pow(2, exp)))}) {}
+    Impl(int size) : mKvs(std::vector<KeyValuePair>(size)) {}
 
-    uint64_t size() const { return mSize.load(); }
-
-    bool empty() const { return mSize.load() == 0; }
-
-    std::size_t bucket_count() const {
-        // TODO: Might need to add a check here to see if the vector is locked
-        *mKvs.back();
-        return mKvs.back()->size();
+    uint64_t size() const {
+        std::size_t s = mSize;
+        if (nextKvs != nullptr) {
+            s += nextKvs.load()->size();
+        }
+        return s;
     }
 
-    bool resizeRequired() const { return size() > bucket_count() * mMaxLoad; }
+    bool empty() const {
+        auto empty = mSize == 0;
+        auto next_empty = true;
+        if (nextKvs != nullptr) {
+            next_empty = nextKvs.load()->empty();
+        }
+        return empty && next_empty;
+    }
+
+    std::size_t bucket_count() const {
+        if (nextKvs != nullptr) {
+            return nextKvs.load()->bucket_count();
+        }
+        return mKvs.size();
+    }
+
+    bool resizeRequired() const { return size() > mKvs.size() * mMaxLoad; }
 
     void allocateNewKvs() {
-        const auto newSize = mKvs.back()->size() * 2;
-        mKvs.push_back(std::make_shared<std::vector<KeyValuePair>>(
-            std::vector<KeyValuePair>(newSize)));
+
+        // You could check here if anybody else has already started a resize and
+        // if so not allocate memory.
+
+        auto *ptr = new Impl(mKvs.size() * 2);
+        Impl *x = nullptr;
+		// Only thread should win the race and put the newKvs into place.
+        auto s = nextKvs.compare_exchange_strong(x, ptr);
+        if (!s) {
+            // Allocated for nothing, some other thread beat us,
+            // so cleanup our mess.
+            delete ptr;
+        }
     }
 
     // According to the spec this should return: pair<iterator,bool> insert (
@@ -60,11 +83,13 @@ class ConcurrentUnorderedMap {
         if (resizeRequired()) {
             allocateNewKvs();
         }
+        if (nextKvs != nullptr) {
+            return nextKvs.load()->insert(val);
+        }
         const int *putKey = new int(val.first);
         const int *putValue = new int(val.second);
-        auto kvs = mKvs.back();
-        int slot = hash(*putKey, kvs->size());
-        auto *pair = &kvs->at(slot);
+        int slot = hash(*putKey, mKvs.size());
+        auto *pair = &mKvs[slot];
 
         while (true) {
             auto &k = pair->mKey;
@@ -92,7 +117,7 @@ class ConcurrentUnorderedMap {
             }
 
             slot = clip(slot + 1);
-            pair = &kvs->at(slot);
+            pair = &mKvs[slot];
         }
 
         while (true) {
@@ -117,42 +142,67 @@ class ConcurrentUnorderedMap {
             }
         }
     }
-    std::optional<int> at(const std::shared_ptr<std::vector<KeyValuePair>> &kvs,
-                          const int key) const {
-        int slot = hash(key, kvs->size());
+    int at(const int key) const {
+        int slot = hash(key, mKvs.size());
         while (true) {
-            const auto &d = kvs->at(slot);
+            const auto &d = mKvs[slot];
             const auto currentKeyValue = d.mKey.load();
             if (*currentKeyValue == key) {
                 // TODO: I think we need to check here if what we load from
                 // value is EMPTY, because it could be if another thread inserts
                 // a key before this thread looksup the key but the value hasn't
                 // been written into place by the other thread.
-                return std::optional<int>(*d.mValue.load());
+                return *d.mValue.load();
             }
             if (currentKeyValue == EMPTY) {
-                return std::nullopt;
+                if (nextKvs == nullptr)
+                    throw std::out_of_range("Unable to find key");
+                else
+                    return nextKvs.load()->at(key);
             }
             slot = clip(slot + 1);
         }
         assert(false);
     }
 
-    int at(const int key) const {
-        for (const auto &kvs : mKvs) {
-            auto result = at(kvs, key);
-            if (result.has_value()) {
-                return result.value();
-            }
-        }
-        throw std::out_of_range("Unable to find key");
+  private:
+    float mMaxLoad = 0.5;
+    size_type clip(const size_type slot) const {
+        // TODO: Add comment here on how this works?
+        return slot & (mKvs.size() - 1);
     }
+
+    std::atomic<uint64_t> mSize{};
+    std::vector<KeyValuePair> mKvs;
+    std::atomic<Impl *> nextKvs = nullptr;
+};
+
+class ConcurrentUnorderedMap {
+  public:
+    ConcurrentUnorderedMap(int exp = 5) {
+        // ZZZ: This can be in init list
+        head = new Impl(std::pow(2, exp));
+    }
+
+    std::atomic<Impl *> head;
+
+    int insert(const std::pair<int, int> &val) {
+        return head.load()->insert(val);
+    }
+
+    int at(const int key) const { return head.load()->at(key); }
+
+    std::size_t bucket_count() const { return head.load()->bucket_count(); }
+
+    std::size_t size() const { return head.load()->size(); }
+
+    std::size_t empty() const { return head.load()->empty(); }
 
     // This should be templated to handle different types of maps.
     bool operator==(const std::unordered_map<int, int> &other) const {
         for (const auto &pair : other) {
             try {
-                if (this->at(pair.first) != pair.second) {
+                if (head.load()->at(pair.first) != pair.second) {
                     return false;
                 }
 
@@ -162,16 +212,6 @@ class ConcurrentUnorderedMap {
         }
         return true;
     }
-
-  private:
-    float mMaxLoad = 0.5;
-    size_type clip(const size_type slot) const {
-        // TODO: Add comment here on how this works?
-        return slot & (mKvs.back()->size() - 1);
-    }
-    std::atomic<uint64_t> mSize{};
-
-    std::vector<std::shared_ptr<std::vector<KeyValuePair>>> mKvs;
 };
 
 #endif // MAP_H

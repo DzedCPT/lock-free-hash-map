@@ -17,12 +17,18 @@ std::uniform_int_distribution<std::mt19937::result_type> dist(1, 100000);
 
 std::unordered_map<int, int> createRandomMap(const int n) {
     std::unordered_map<int, int> map;
-    for (int i = 0; i < n; i++) {
+    while (true) {
         const auto key = dist(rng);
+        if (map.find(key) != map.end()) {
+            continue;
+        }
         const auto value = dist(rng);
         map.insert({key, value});
+        if (map.size() == n) {
+            return map;
+        }
     }
-    return map;
+    assert(false);
 }
 
 void insertMapIntoConcurrentMap(const std::unordered_map<int, int> &map,
@@ -49,7 +55,7 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Size) {
     EXPECT_EQ(cmap.size(), map.size());
 }
 
-TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_SizeWIthResize) {
+TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_SizeWithResize) {
     ConcurrentUnorderedMap cmap;
     const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
     const auto map = createRandomMap(n);
@@ -134,6 +140,46 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
         EXPECT_EQ(cmap, map);
     }
 }
+
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
+    // We don't want to test resize here so make the number of elements here
+    // less than the starting capacity of the cmap.
+    ConcurrentUnorderedMap cmap;
+    const auto startingBucketCount = cmap.bucket_count();
+    // Make sure we pick a factor here higher than the load factor!
+    const auto map = createRandomMap(startingBucketCount * 0.75);
+
+	// TODO: I know that if I increase this it will break on the cmap.bucket_count()
+	// function call
+    for (int i = 0; i < 100; i++) {
+        threadedMapInsert(cmap, map, 2);
+        // Should only resize once, so bucket count should end up beng twice
+        // the starting
+        // bucket size.
+        EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
+		EXPECT_EQ(cmap, map);
+		// TODO: Next step, assert that the map cleans up earlier
+		// version
+		// EXPECT_EQ(cmap.depth(), 1);
+    }
+}
+
+// TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
+//     // We don't want to test resize here so make the number of elements here
+//     // less than the starting capacity of the cmap.
+//     ConcurrentUnorderedMap cmap;
+//
+//     const auto startingBucketCount = cmap.bucket_count();
+// 	std::cout  << startingBucketCount << std::endl;
+// 	// The +1 will trigger a second resize with load factor threshold 0.5.
+//     const auto map = createRandomMap(startingBucketCount + 1);
+//
+//     for (int i = 0; i < 1; i++) {
+//         threadedMapInsert(cmap, map, 2);
+//         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
+// 		EXPECT_EQ(cmap, map);
+//     }
+// }
 
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
