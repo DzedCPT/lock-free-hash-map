@@ -20,7 +20,7 @@ inline int hash(const int key, const int capacity) { return key % capacity; }
 
 class Map {
   public:
-    Map() : mData(std::vector<KeyValuePair>(mCapacity)) {}
+    Map(int capacity=100) : mCapacity(capacity), mData(std::vector<KeyValuePair>(capacity)) {}
 
     uint64_t size() const { return mSize.load(); }
 
@@ -28,7 +28,6 @@ class Map {
         int slot = hash(putKey, mCapacity);
         auto &pair = mData[slot];
         while (true) {
-
             auto &k = pair.mKey;
             // Check if we've found an open space:
             if (k == -1) {
@@ -68,7 +67,7 @@ class Map {
   private:
     std::atomic<uint64_t> mSize{};
     std::vector<KeyValuePair> mData;
-    int mCapacity = 100;
+    int mCapacity;
     int mSentryValue = -1;
 };
 #endif // MAP_H
