@@ -102,6 +102,21 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Resize) {
     EXPECT_EQ(cmap, map);
 }
 
+TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Erase) {
+    ConcurrentUnorderedMap cmap;
+    const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
+    auto map = createRandomMap(n);
+	map[10] = 10;
+    insertMapIntoConcurrentMap(map, cmap);
+    deleteMapFromConcurrentMap(map, cmap);
+
+	map.clear();
+
+    EXPECT_EQ(cmap.size(), 0);
+    EXPECT_EQ(cmap, map);
+    EXPECT_THROW(cmap.at(10), std::out_of_range);
+}
+
 void threadedMapInsert(ConcurrentUnorderedMap &cmap,
                        const std::unordered_map<int, int> &map,
                        const int nThreads) {

@@ -13,6 +13,7 @@ const size_t COPY_CHUNK_SIZE = 8;
 enum DataState {
     EMPTY,
     ALIVE,
+    TOMB_STONE,
     COPIED_DEAD,
     COPIED_ALIVE,
 };
@@ -30,6 +31,7 @@ class DataWrapper {
     bool fromPrevKvs() const { return mState == COPIED_ALIVE; }
     bool dead() const { return mState == COPIED_DEAD; }
     bool alive() const { return mState == ALIVE; }
+    bool tombstone() const { return mState == TOMB_STONE; }
     int data() const { return mData; }
 
   private:
@@ -110,6 +112,51 @@ class KeyValueStore {
     // insert ( const value_type& val );
     int insert(const std::pair<int, int> &val) { return insert(val, ALIVE); }
 
+    // TODO: According to the spec this should return: size_t
+    void erase(const int key) {
+        std::cout << key << std::endl;
+        mSize--;
+
+        int slotIdx = hash(key, mKvs.size());
+
+        while (true) {
+            const auto slotKey = mKvs[slotIdx].key();
+
+            if (slotKey->data() == key) {
+                // great we found it.
+                break;
+            }
+
+            if (slotKey->empty()) {
+                // Couldn't find it, seems the key doesn't exist.
+                return;
+            }
+
+            // reprobe
+            slotIdx = clip(slotIdx + 1);
+        }
+
+        DataWrapper *tombStone = new DataWrapper(TOMB_STONE);
+        while (true) {
+            auto &slot = mKvs[slotIdx];
+            const DataWrapper *slotValue = slot.value();
+
+            if (slotValue->tombstone()) {
+                delete tombStone;
+                return;
+            }
+
+            const auto valueData = slotValue->data();
+            if (slot.casValue(slotValue, tombStone)) {
+                // TODO: This shouldn't caus a segfault.
+                // delete slotValue;
+                return;
+            }
+        }
+
+        assert(false);
+    }
+
     int atKvs(const int key) {
         // mNumReaders++;
         int slot = hash(key, mKvs.size());
@@ -118,7 +165,7 @@ class KeyValueStore {
             const auto currentKeyValue = d.key();
             if (currentKeyValue->data() == key && currentKeyValue->alive()) {
                 auto value = d.value();
-                if (value->dead()) {
+                if (value->dead() || value->tombstone()) {
                     if (mNextKvs == nullptr) {
                         // TODO: This currently won't correctly decrease the
                         // number of readers.
@@ -422,6 +469,9 @@ class ConcurrentUnorderedMap {
 
     // This should be templated to handle different types of maps.
     bool operator==(const std::unordered_map<int, int> &other) const {
+        if (size() != other.size())
+            return false;
+
         for (const auto &pair : other) {
             try {
                 if (mHeadKvs.load()->at(pair.first) != pair.second) {
@@ -434,6 +484,8 @@ class ConcurrentUnorderedMap {
         }
         return true;
     }
+
+    void erase(int key) { mHeadKvs.load()->erase(key); }
 
   private:
     void tryUpdateKvsHead() {
