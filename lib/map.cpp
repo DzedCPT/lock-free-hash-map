@@ -119,12 +119,12 @@ class KeyValueStore {
     }
 
     V atKvs(K const key) {
-        int slot = hash(key);
+        int idx = hash(key);
         while (true) {
-            auto const& d = mKvs[slot];
-            auto const currentKeyValue = d.key();
+            auto const& slot = mKvs[idx];
+            auto const currentKeyValue = slot.key();
             if (currentKeyValue->eval(key)) {
-                auto value = d.value();
+                auto value = slot.value();
                 if (value->dead()) {
                     if (mNextKvs == nullptr) {
                         mNumReaders--;
@@ -149,7 +149,7 @@ class KeyValueStore {
                     return result;
                 }
             }
-            slot = clip(slot + 1);
+            idx = clip(idx + 1);
         }
         assert(false);
     }
