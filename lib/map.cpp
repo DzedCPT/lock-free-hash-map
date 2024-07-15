@@ -506,9 +506,8 @@ size_t ConcurrentUnorderedMap<K, V>::depth() const {
 template <typename K, typename V>
 bool ConcurrentUnorderedMap<K, V>::operator==(
     const std::unordered_map<K, V> &other) const {
-    // TODO: this check should be put back.
-    // if (size() != other.size())
-    //     return false;
+    if (size() != other.size())
+        return false;
 
     for (const auto &pair : other) {
         try {
