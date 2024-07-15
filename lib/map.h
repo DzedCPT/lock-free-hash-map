@@ -21,7 +21,7 @@ template <typename K, typename V> class ConcurrentUnorderedMap {
     V at(const K key) const;
     std::size_t bucket_count() const;
     std::size_t size() const;
-    std::size_t empty() const;
+    bool empty() const;
     std::size_t depth() const;
 
     bool operator==(const std::unordered_map<K, V> &other) const;

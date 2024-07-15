@@ -486,7 +486,7 @@ size_t ConcurrentUnorderedMap<K, V>::size() const {
 }
 
 template <typename K, typename V>
-size_t ConcurrentUnorderedMap<K, V>::empty() const {
+bool ConcurrentUnorderedMap<K, V>::empty() const {
     return mHeadKvs.load()->empty();
 }
 
