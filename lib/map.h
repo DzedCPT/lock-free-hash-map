@@ -30,16 +30,25 @@ class DataWrapper {
     NodeState mState = EMPTY;
 };
 
-class KeyValuePair {
+class Slot {
   public:
-    std::atomic<const DataWrapper *> mKey{};
-    std::atomic<const DataWrapper *> mValue{};
-
-    KeyValuePair() {
-
+    // TODO: Slot needs a desctructor.
+    Slot() {
         mKey.store(new DataWrapper(EMPTY));
         mValue.store(new DataWrapper(EMPTY));
     }
+
+    bool casValue(const DataWrapper *expected, const DataWrapper *desired) {
+        return mValue.compare_exchange_strong(expected, desired);
+    }
+
+    bool casKey(const DataWrapper *expected, const DataWrapper *desired) {
+        return mKey.compare_exchange_strong(expected, desired);
+    }
+
+  private:
+    std::atomic<const DataWrapper *> mKey{};
+    std::atomic<const DataWrapper *> mValue{};
 };
 
 inline int hash(const int key, const int capacity) {
@@ -51,7 +60,7 @@ class Impl {
   public:
     typedef std::size_t size_type;
 
-    Impl(int size) : mKvs(std::vector<KeyValuePair>(size)) {}
+    Impl(int size) : mKvs(std::vector<Slot>(size)) {}
 
     uint64_t size() const {
         std::size_t s = mSize;
@@ -120,8 +129,7 @@ class Impl {
             assert(!key->copied());
             // first case the slot has no key.
             if (key->empty()) {
-                auto succes =
-                    pair->mKey.compare_exchange_strong(key, copiedMarker);
+                auto succes = pair->casKey(key, copiedMarker);
                 if (succes) {
                     return;
                 }
@@ -144,8 +152,7 @@ class Impl {
             assert(!value->empty());
             assert(nextKvs != nullptr);
 
-            auto success =
-                pair->mValue.compare_exchange_strong(value, copiedMarker);
+            auto success = pair->casValue(value, copiedMarker);
             if (success) {
                 // TODO: This will currently overwrite the value in the new
                 // table if a new value has been written after the copy started.
@@ -169,9 +176,9 @@ class Impl {
             doCopy(i);
         }
 
-		if (workStartIdx + COPY_CHUNK_SIZE == mKvs.size()) {
-			mCopied = true;
-		}
+        if (workStartIdx + COPY_CHUNK_SIZE == mKvs.size()) {
+            mCopied = true;
+        }
     }
 
     // According to the spec this should return: pair<iterator,bool> insert (
@@ -198,8 +205,7 @@ class Impl {
                 // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
 
                 // ZZZ: Pull some of this below out in multiple lines.
-                if (auto success =
-                        pair->mKey.compare_exchange_strong(k, putKey)) {
+                if (auto success = pair->casKey(k, putKey)) {
                     ++mSize;
                     break;
                 }
@@ -232,8 +238,7 @@ class Impl {
             }
 
             // const int currentValue = v->mValue;
-            if (auto success =
-                    pair->mValue.compare_exchange_strong(v, putValue)) {
+            if (auto success = pair->casValue(v, putValue)) {
                 // We replaced the old value with a new one, so cleanup the old
                 // value.
                 // TODO: How should I cleanup v here?
@@ -266,8 +271,7 @@ class Impl {
                     } else {
                         auto result = nextKvs.load()->at(key);
                         mNumReaders--;
-						return result;
-
+                        return result;
                     }
                 }
                 // TODO: I think we need to check here if what we load from
@@ -296,9 +300,7 @@ class Impl {
 
     bool copied() const { return mCopied; }
 
-	bool hasActiveReaders()const {
-		return mNumReaders != 0;
-	}
+    bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
     inline static const std::size_t COPY_CHUNK_SIZE = 8;
@@ -310,11 +312,11 @@ class Impl {
     }
 
     std::atomic<uint64_t> mSize{};
-    std::vector<KeyValuePair> mKvs;
+    std::vector<Slot> mKvs;
     std::atomic<Impl *> nextKvs = nullptr;
     std::atomic<std::size_t> mCopyIdx;
     std::atomic<std::size_t> mNumReaders = 0;
-	// ZZZ: Why does this need to be volatile.
+    // ZZZ: Why does this need to be volatile.
     volatile bool mCopied = false;
 };
 
@@ -325,21 +327,21 @@ class ConcurrentUnorderedMap {
     std::atomic<Impl *> head;
 
     int insert(const std::pair<int, int> &val) {
-		// Surgically replace the head.
+        // Surgically replace the head.
         auto headValue = head.load();
         auto nextKvs = headValue->getNextKvs();
-        if (nextKvs != nullptr && headValue->copied() && !headValue->hasActiveReaders()) {
-        // if (nextKvs != nullptr && headValue->copied() ) {
-        // if (nextKvs != nullptr && headValue->copied()) {
+        if (nextKvs != nullptr && headValue->copied() &&
+            !headValue->hasActiveReaders()) {
+            // if (nextKvs != nullptr && headValue->copied() ) {
+            // if (nextKvs != nullptr && headValue->copied()) {
             // The current head is dead, since it's been copied into the kvs.
             // So we need to
-			auto success = head.compare_exchange_strong(headValue, nextKvs);
-			if (success) {
-				// We won so it's out responsibility to clean up the old Kvs
-				// TODO NB: Will need to put this back, but currently it creates segfault sometimes.
-				// delete headValue;/* ; */
-
-			}
+            auto success = head.compare_exchange_strong(headValue, nextKvs);
+            if (success) {
+                // We won so it's out responsibility to clean up the old Kvs
+                // TODO NB: Will need to put this back, but currently it creates
+                // segfault sometimes. delete headValue;/* ; */
+            }
         }
 
         return head.load()->insert(val);
