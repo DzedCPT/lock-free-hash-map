@@ -343,6 +343,26 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
     }
 }
 
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Erase) {
+	for (int i = 0; i < 1; i++) {
+   	   // We don't want to test resize here so make the number of elements here (4)
+    	// less than the starting capacity of the cmap.
+    	ConcurrentUnorderedMap cmap;
+    	auto map = createRandomMap(4);
+		map[10] = 10;
+
+        threadedMapInsert(cmap, map, 10);
+    	deleteMapFromConcurrentMap(map, cmap);
+		map.clear();
+
+        EXPECT_EQ(cmap, map);
+    	EXPECT_EQ(cmap.size(), 0);
+    	EXPECT_EQ(cmap, map);
+    	EXPECT_THROW(cmap.at(10), std::out_of_range);
+
+	}
+}
+
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
