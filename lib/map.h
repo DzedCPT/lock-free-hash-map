@@ -29,18 +29,16 @@ class DataWrapper {
                  mState == COPIED_ALIVE);
     }
     bool fromPrevKvs() const { return mState == COPIED_ALIVE; }
-    bool dead() const { return mState == COPIED_DEAD; }
-    bool alive() const { return mState == ALIVE; }
-    bool alive2() const { return mState == ALIVE || mState == COPIED_ALIVE; }
-    bool tombstone() const { return mState == TOMB_STONE; }
-    int data() const { return mData; }
-	bool eval(int val) const {
-		if (mState == ALIVE || mState == COPIED_ALIVE)
-			return val == mData;
-		return false;
-	}
+    bool dead() const { return mState == COPIED_DEAD || mState == TOMB_STONE; }
+    bool eval(int val) const {
+        if (mState == ALIVE || mState == COPIED_ALIVE)
+            return val == mData;
+        return false;
+    }
 
-    bool dead2() const {return (mState == EMPTY || mState == TOMB_STONE);}
+    // getters
+    int data() const { return mData; }
+    DataState state() const { return mState; }
 
   private:
     const int mData = 0;
@@ -120,61 +118,14 @@ class KeyValueStore {
     // insert ( const value_type& val );
     int insert(const std::pair<int, int> &val) { return insert(val, ALIVE); }
 
-   // TODO: According to the spec this should return: size_t
-    void erase(const int key) {
-		if (erase2(key)) {
-        	mSize--;
-			return;
-		}
-		if (mNextKvs.load() != nullptr)
-			mNextKvs.load()->erase(key);
-	}
-
     // TODO: According to the spec this should return: size_t
-    bool erase2(const int key) {
-
-        int slotIdx = hash(key, mKvs.size());
-
-        while (true) {
-            const auto slotKey = mKvs[slotIdx].key();
-
-            if (slotKey->data() == key && slotKey->alive2()) {
-                // great we found it.
-                break;
-            }
-
-            if (slotKey->empty()) {
-                // Couldn't find it, seems the key doesn't exist.
-                return false;
-            }
-
-            // reprobe
-            slotIdx = clip(slotIdx + 1);
+    void erase(const int key) {
+        if (eraseKvs(key)) {
+            mSize--;
+            return;
         }
-
-        DataWrapper *tombStone = new DataWrapper(TOMB_STONE);
-        while (true) {
-            auto &slot = mKvs[slotIdx];
-            const DataWrapper *slotValue = slot.value();
-
-            if (slotValue->tombstone()) {
-                delete tombStone;
-                return true;
-            }
-			if (slotValue->dead()) {
-                delete tombStone;
-                return false;
-            }
-
-            const auto valueData = slotValue->data();
-            if (slot.casValue(slotValue, tombStone)) {
-                // TODO: This shouldn't caus a segfault.
-                // delete slotValue;
-                return true;
-            }
-        }
-
-        assert(false);
+        if (mNextKvs.load() != nullptr)
+            mNextKvs.load()->erase(key);
     }
 
     int atKvs(const int key) {
@@ -183,10 +134,9 @@ class KeyValueStore {
         while (true) {
             const auto &d = mKvs[slot];
             const auto currentKeyValue = d.key();
-            // if (currentKeyValue->data() == key && currentKeyValue->alive()) {
             if (currentKeyValue->eval(key)) {
                 auto value = d.value();
-                if (value->dead() || value->tombstone()) {
+                if (value->dead()) {
                     if (mNextKvs == nullptr) {
                         // TODO: This currently won't correctly decrease the
                         // number of readers.
@@ -354,7 +304,7 @@ class KeyValueStore {
                 continue;
             }
 
-            if (currentKey->data() == desiredKey->data()) {
+            if (currentKey->eval(desiredKey->data())) {
                 // The current key has the same value as the one were trying to
                 // insert. So we can just use the current key but need to not
                 // leak the memory of the newly allocated key.
@@ -397,7 +347,7 @@ class KeyValueStore {
 
             // TODO: Is the dereference safe?
             // TODO: Why is this safe! Maybe it isn't maybe it is.
-            if ((currentValue->data() == desiredValue->data()) && !currentValue->dead2()) {
+            if (currentValue->eval(desiredValue->data())) {
                 // Value already in place so we're done.
                 delete desiredValue;
                 return currentValue->data();
@@ -418,6 +368,57 @@ class KeyValueStore {
             return insert(val);
         }
         return insertValue(slot, val.second, valueState);
+    }
+
+    bool eraseKvs(const int key) {
+        int slotIdx = hash(key, mKvs.size());
+
+        while (true) {
+            const auto slotKey = mKvs[slotIdx].key();
+
+            if (slotKey->eval(key)) {
+                // great we found it.
+                break;
+            }
+
+            if (slotKey->empty()) {
+                // Couldn't find it, seems the key doesn't exist.
+                return false;
+            }
+
+            // reprobe
+            slotIdx = clip(slotIdx + 1);
+        }
+
+        DataWrapper *tombStone = new DataWrapper(TOMB_STONE);
+        while (true) {
+            auto &slot = mKvs[slotIdx];
+            const DataWrapper *slotValue = slot.value();
+
+            // If we find a TOMB_STONE somebody else has already deleted the
+            // value, so we can return true, we're done.
+            if (slotValue->state() == TOMB_STONE) {
+                delete tombStone;
+                return true;
+            }
+
+            // If we find a COPIED_DEAD the value has been copied into a new
+            // table so we need to return false to ensure we check the newer
+            // table.
+            if (slotValue->state() == COPIED_DEAD) {
+                delete tombStone;
+                return false;
+            }
+
+            const auto valueData = slotValue->data();
+            if (slot.casValue(slotValue, tombStone)) {
+                // TODO: This shouldn't caus a segfault.
+                // delete slotValue;
+                return true;
+            }
+        }
+
+        assert(false);
     }
 
     int insert(const std::pair<int, int> &val, const DataState valueState) {
