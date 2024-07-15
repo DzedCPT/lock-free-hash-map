@@ -444,7 +444,7 @@ class KeyValueStore {
     std::atomic<KeyValueStore*> mNextKvs = nullptr;
     std::atomic<size_t> mCopyIdx;
     std::atomic<size_t> mNumReaders = 0;
-    // Copied doesn't need to be atomic because it's only every going to change
+    // mCopied doesn't need to be atomic because it's only every going to change
     // from false to true. and it doesn't matter how many times that happens.
     bool mCopied = false;
     float const mMaxLoadRatio;
