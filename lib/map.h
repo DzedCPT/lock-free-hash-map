@@ -108,7 +108,7 @@ class KeyValueStore {
 
     // TODO: According to the spec this should return: pair<iterator,bool>
     // insert ( const value_type& val );
-    int insert(const std::pair<int, int> &val) { return insert(val, false); }
+    int insert(const std::pair<int, int> &val) { return insert(val, ALIVE); }
 
     int atKvs(const int key) {
         // mNumReaders++;
@@ -234,7 +234,7 @@ class KeyValueStore {
             }
 
             if (slot->casValue(value, copiedMarker)) {
-                nextKvs()->insert({key->data(), data}, true);
+                nextKvs()->insert({key->data(), data}, COPIED_ALIVE);
                 mSize--;
                 return;
             }
@@ -312,17 +312,18 @@ class KeyValueStore {
         return slot;
     }
 
-    int insertValue(Slot *slot, int value, bool fromOldKvs) {
-        const auto dataState = fromOldKvs ? COPIED_ALIVE : ALIVE;
-        const DataWrapper *desiredValue = new DataWrapper(value, dataState);
+    int insertValue(Slot *slot, int value, DataState valueState) {
+        assert(valueState == COPIED_ALIVE || valueState == ALIVE);
+        const DataWrapper *desiredValue = new DataWrapper(value, valueState);
 
         while (true) {
             const DataWrapper *currentValue = slot->value();
 
             const bool canReplaceWithValueFromOldKvs =
                 (currentValue->empty() || currentValue->fromPrevKvs());
+            const bool insertingValueFromOldKvs = valueState == COPIED_ALIVE;
 
-            if (!canReplaceWithValueFromOldKvs && fromOldKvs) {
+            if (!canReplaceWithValueFromOldKvs && insertingValueFromOldKvs) {
                 delete desiredValue;
                 return currentValue->data();
             }
@@ -341,7 +342,7 @@ class KeyValueStore {
         }
     }
 
-    int insertKvs(const std::pair<int, int> &val, bool fromOldKvs) {
+    int insertKvs(const std::pair<int, int> &val, const DataState valueState) {
         Slot *slot = insertKey(val.first);
         if (slot == nullptr) {
             // We failed to get a keySlot and a resize is required. Let's start
@@ -349,10 +350,10 @@ class KeyValueStore {
             // ourselves.
             return insert(val);
         }
-        return insertValue(slot, val.second, fromOldKvs);
+        return insertValue(slot, val.second, valueState);
     }
 
-    int insert(const std::pair<int, int> &val, bool fromOldKvs) {
+    int insert(const std::pair<int, int> &val, const DataState valueState) {
         if (resizeRequired()) {
             newKvs();
         }
@@ -363,10 +364,10 @@ class KeyValueStore {
             // We ask each inserter to also do a little work copying data to the
             // new Kvs.
             copyBatch();
-            return nextKvs()->insert(val, fromOldKvs);
+            return nextKvs()->insert(val, valueState);
         }
 
-        return insertKvs(val, fromOldKvs);
+        return insertKvs(val, valueState);
     }
 
     bool resizeRequired() const {
