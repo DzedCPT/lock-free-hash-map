@@ -3,7 +3,6 @@
 
 #include <limits>
 #include <list>
-#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -183,16 +182,16 @@ class KeyValueStore {
         }
     }
 
-    std::optional<size_t> getCopyBatchIdx() {
+    size_t getCopyBatchIdx() {
         auto startIdx = mCopyIdx.load();
         if (startIdx >= mKvs.size()) {
-            return std::nullopt;
+            return mKvs.size();
         }
 
         size_t endIdx = startIdx + COPY_CHUNK_SIZE;
         if (!mCopyIdx.compare_exchange_strong(startIdx, endIdx)) {
             // Another thread claimed this work before us.
-            return std::nullopt;
+			return mKvs.size();
         }
         return startIdx;
     }
@@ -236,13 +235,12 @@ class KeyValueStore {
     }
 
     void copyBatch() {
-        const auto batchStartIdx = getCopyBatchIdx();
-        if (!batchStartIdx.has_value()) {
+        const auto startIdx = getCopyBatchIdx();
+        if (startIdx == mKvs.size()) {
             // Either the copy is done or another thread got the work.
             return;
         }
 
-        const size_t startIdx = batchStartIdx.value();
         const size_t endIdx = startIdx + COPY_CHUNK_SIZE;
 
         for (auto i = startIdx; i < endIdx; i++)
