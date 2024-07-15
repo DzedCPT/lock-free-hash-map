@@ -119,7 +119,6 @@ class KeyValueStore {
     }
 
     V atKvs(K const key) {
-        // mNumReaders++;
         int slot = hash(key);
         while (true) {
             auto const& d = mKvs[slot];
@@ -139,7 +138,7 @@ class KeyValueStore {
                 // So we need to start again until we can see the value or it's
                 // killed.
                 if (value->empty()) continue;
-				// Value found, let's return.
+                // Value found, let's return.
                 return value->data();
             }
             if (currentKeyValue->empty() || currentKeyValue->dead()) {
@@ -284,10 +283,6 @@ class KeyValueStore {
             DataWrapper<K> const* currentKey = slot->key();
             // Check if we've fo und an open space:
             if (currentKey->empty()) {
-                // Not 100% sure what the difference is here between _strong and
-                // _weak:
-                // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
-
                 if (slot->casKey(currentKey, desiredKey)) {
                     // yay!! We inserted the key.
                     ++mSize;
@@ -344,8 +339,6 @@ class KeyValueStore {
                 return currentValue->data();
             }
 
-            // TODO: Is the dereference safe?
-            // TODO: Why is this safe! Maybe it isn't maybe it is.
             if (currentValue->eval(desiredValue->data())) {
                 // Value already in place so we're done.
                 delete desiredValue;
@@ -353,7 +346,6 @@ class KeyValueStore {
             }
 
             if (slot->casValue(currentValue, desiredValue))
-                // TODO: SHould we here delete current value?
                 return desiredValue->data();
         }
     }
@@ -453,7 +445,7 @@ class KeyValueStore {
     std::atomic<size_t> mCopyIdx;
     std::atomic<size_t> mNumReaders = 0;
     // Copied doesn't need to be atomic because it's only every going to change
-    // from false to true. and it doesn't matter how many times that happends
+    // from false to true. and it doesn't matter how many times that happens.
     bool mCopied = false;
     float const mMaxLoadRatio;
     std::hash<K> mHash;
@@ -535,6 +527,7 @@ void ConcurrentUnorderedMap<K, V>::tryUpdateKvsHead() {
             // We won so it's out responsibility to clean up the old Kvs
             // TODO NB: Will need to put this back, but currently it creates
             // segfault sometimes. delete headValue;/* ; */
+            // delete mHeadKvs.load();
         }
     }
 }
