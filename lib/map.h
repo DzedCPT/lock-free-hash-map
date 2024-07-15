@@ -155,7 +155,7 @@ class KeyValueStore {
         }
 
         mNumReaders++;
-        auto result = atKvs(key);
+        const auto result = atKvs(key);
         mNumReaders--;
         return result;
     }
@@ -191,7 +191,7 @@ class KeyValueStore {
         size_t endIdx = startIdx + COPY_CHUNK_SIZE;
         if (!mCopyIdx.compare_exchange_strong(startIdx, endIdx)) {
             // Another thread claimed this work before us.
-			return mKvs.size();
+            return mKvs.size();
         }
         return startIdx;
     }
@@ -203,7 +203,7 @@ class KeyValueStore {
         auto key = slot->key();
         assert(!key->copied());
 
-        // Let's see if we can put an COPIED state into an EMPTY key:
+        // Let's see if we can put a COPIED state into an EMPTY key:
         if (key->empty()) {
             if (slot->casKey(key, copiedMarker))
                 return;
@@ -335,42 +335,29 @@ class KeyValueStore {
 class ConcurrentUnorderedMap {
   public:
     ConcurrentUnorderedMap(int exp = 5)
-        : head(new KeyValueStore(std::pow(2, exp))) {}
-
-    std::atomic<KeyValueStore *> head;
+        : mHeadKvs(new KeyValueStore(std::pow(2, exp))) {}
 
     int insert(const std::pair<int, int> &val) {
-        // Surgically replace the head.
-        auto headValue = head.load();
-        auto nextKvs = headValue->nextKvs();
-        if (nextKvs != nullptr && headValue->copied() &&
-            !headValue->hasActiveReaders()) {
-            if (head.compare_exchange_strong(headValue, nextKvs)) {
-                // We won so it's out responsibility to clean up the old Kvs
-                // TODO NB: Will need to put this back, but currently it creates
-                // segfault sometimes. delete headValue;/* ; */
-            }
-        }
-
-        return head.load()->insert(val);
+        tryUpdateKvsHead();
+        return mHeadKvs.load()->insert(val);
     }
 
-    int at(const int key) const { return head.load()->at(key); }
+    int at(const int key) const { return mHeadKvs.load()->at(key); }
 
-    size_t bucket_count() const { return head.load()->bucket_count(); }
+    size_t bucket_count() const { return mHeadKvs.load()->bucket_count(); }
 
-    size_t size() const { return head.load()->size(); }
+    size_t size() const { return mHeadKvs.load()->size(); }
 
-    size_t empty() const { return head.load()->empty(); }
+    size_t empty() const { return mHeadKvs.load()->empty(); }
 
     size_t depth() const {
         size_t depth = 0;
-        KeyValueStore *x = head;
+        KeyValueStore *kvs = mHeadKvs;
         while (true) {
-            if (x->nextKvs() == nullptr) {
+            if (kvs->nextKvs() == nullptr) {
                 break;
             }
-            x = x->nextKvs();
+            kvs = kvs->nextKvs();
             depth++;
         }
         return depth;
@@ -380,7 +367,7 @@ class ConcurrentUnorderedMap {
     bool operator==(const std::unordered_map<int, int> &other) const {
         for (const auto &pair : other) {
             try {
-                if (head.load()->at(pair.first) != pair.second) {
+                if (mHeadKvs.load()->at(pair.first) != pair.second) {
                     return false;
                 }
 
@@ -390,6 +377,22 @@ class ConcurrentUnorderedMap {
         }
         return true;
     }
+
+  private:
+    void tryUpdateKvsHead() {
+        // Surgically replace the head.
+        auto headKvs = mHeadKvs.load();
+        auto nextKvs = headKvs->nextKvs();
+        if (nextKvs != nullptr && headKvs->copied() &&
+            !headKvs->hasActiveReaders()) {
+            if (mHeadKvs.compare_exchange_strong(headKvs, nextKvs)) {
+                // We won so it's out responsibility to clean up the old Kvs
+                // TODO NB: Will need to put this back, but currently it creates
+                // segfault sometimes. delete headValue;/* ; */
+            }
+        }
+    }
+    std::atomic<KeyValueStore *> mHeadKvs;
 };
 
 #endif // MAP_H
