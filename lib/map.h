@@ -231,8 +231,16 @@ class KeyValueStore {
             assert(!slot->key()->empty());
             assert(!slot->key()->copied());
             assert(!value->copied());
-            assert(!value->empty());
             assert(mNextKvs != nullptr);
+
+            if (value->empty()) {
+                // We got here so the key wasn't empty, but the value is empty.
+                // This means we've got inbetweeen an insert that had inserted
+                // the key but not yet the value.
+                // So we need to wait until the value is visible before we can
+                // do the cas below.
+                continue;
+            }
 
             if (slot->casValue(value, copiedMarker)) {
                 // TODO: This will currently overwrite the value in the new
