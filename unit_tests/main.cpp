@@ -264,11 +264,19 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
     }
 }
 
-TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_CopyDoesnNotOverrideNewValues) {
-	// In this test we are testing the case that every value is replaced after a resize starts.
-	// We need to assert that we don't override the new values with the old values
-	// during the copy, because some copies will happen after the new values are inserted and
-	// we need to detect that and drop the copy.
+TEST(TestConcurrentUnorderedHashMap_MultiThread,
+     Test_UniqueValueInsertedByEachThread_WithResize) {
+	// In this test we get each thread to insert unique values. 
+	// This was causing a data race where the copy was colliding
+	// with inserts into the old table.
+	
+    for (int i = 0; i < 10000; i++) {
+        ConcurrentUnorderedMap cmap(7, 0.3);
+        auto m = createRandomMap(16 * 16);
+        auto map = threadedMapInsertMapPerThread(cmap, m, 16);
+        EXPECT_EQ(cmap, map);
+    }
+}
 TEST(TestConcurrentUnorderedHashMap_MultiThread,
      Test_CopyDoesnNotOverrideNewValues) {
     // In this test we are testing the case that every value is replaced after a
