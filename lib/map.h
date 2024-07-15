@@ -19,11 +19,12 @@ enum DataState {
     COPIED_ALIVE,
 };
 
+template <typename T>
 class DataWrapper {
   public:
-    DataWrapper(int value) : mData(value), mState(ALIVE) {}
-    DataWrapper(DataState state) : mData(0), mState(state) {}
-    DataWrapper(int value, DataState state) : mData(value), mState(state) {}
+    // DataWrapper(T value) : mData(value), mState(ALIVE) {}
+    // DataWrapper(DataState state) : mData(T()), mState(state) {}
+    DataWrapper(T value, DataState state) : mData(value), mState(state) {}
 
     bool empty() const {
         return !(mState == ALIVE || mState == COPIED_DEAD ||
@@ -31,26 +32,27 @@ class DataWrapper {
     }
     bool fromPrevKvs() const { return mState == COPIED_ALIVE; }
     bool dead() const { return mState == COPIED_DEAD || mState == TOMB_STONE; }
-    bool eval(int val) const {
+    bool eval(T val) const {
         if (mState == ALIVE || mState == COPIED_ALIVE)
             return val == mData;
         return false;
     }
 
     // getters
-    int data() const { return mData; }
+    T data() const { return mData; }
     DataState state() const { return mState; }
 
   private:
-    const int mData = 0;
+    const T mData;
     DataState mState = EMPTY;
 };
 
+template <typename K, typename V>
 class Slot {
   public:
     Slot() {
-        mKey.store(new DataWrapper(EMPTY));
-        mValue.store(new DataWrapper(EMPTY));
+        mKey.store(new DataWrapper<K>(K(), EMPTY));
+        mValue.store(new DataWrapper<V>(V(), EMPTY));
     }
 
     ~Slot() {
@@ -58,33 +60,33 @@ class Slot {
         delete mValue.load();
     }
 
-    bool casValue(const DataWrapper *expected, const DataWrapper *desired) {
+    bool casValue(const DataWrapper<V> *expected, const DataWrapper<V> *desired) {
         const auto success = mValue.compare_exchange_strong(expected, desired);
         if (success)
             delete expected;
         return success;
     }
 
-    bool casKey(const DataWrapper *expected, const DataWrapper *desired) {
+    bool casKey(const DataWrapper<K> *expected, const DataWrapper<K> *desired) {
         const bool success = mKey.compare_exchange_strong(expected, desired);
         if (success)
             delete expected;
         return success;
     }
 
-    const DataWrapper *key() const { return mKey.load(); }
+    const DataWrapper<K> *key() const { return mKey.load(); }
 
-    const DataWrapper *value() const { return mValue.load(); }
+    const DataWrapper<V> *value() const { return mValue.load(); }
 
   private:
-    std::atomic<const DataWrapper *> mKey{};
-    std::atomic<const DataWrapper *> mValue{};
+    std::atomic<const DataWrapper<K> *> mKey{};
+    std::atomic<const DataWrapper<V> *> mValue{};
 };
 
-class KeyValueStore {
+template <typename K, typename V> class KeyValueStore {
   public:
-    KeyValueStore(int size, float maxLoadRatio)
-        : mKvs(std::vector<Slot>(size)), mMaxLoadRatio(maxLoadRatio) {}
+    KeyValueStore(size_t size, float maxLoadRatio)
+        : mKvs(std::vector<Slot<K,V>>(size)), mMaxLoadRatio(maxLoadRatio) {}
 
     size_t size() const {
         size_t s = mSize;
@@ -112,10 +114,10 @@ class KeyValueStore {
 
     // TODO: According to the spec this should return: pair<iterator,bool>
     // insert ( const value_type& val );
-    int insert(const std::pair<int, int> &val) { return insert(val, ALIVE); }
+    V insert(const std::pair<K, V> &val) { return insert(val, ALIVE); }
 
     // TODO: According to the spec this should return: size_t
-    void erase(const int key) {
+    void erase(const K key) {
         if (eraseKvs(key)) {
             mSize--;
             return;
@@ -124,7 +126,7 @@ class KeyValueStore {
             mNextKvs.load()->erase(key);
     }
 
-    int atKvs(const int key) {
+    V atKvs(const K key) {
         // mNumReaders++;
         int slot = hash(key);
         while (true) {
@@ -160,7 +162,7 @@ class KeyValueStore {
         assert(false);
     }
 
-    int at(const int key) {
+    V at(const K key) {
         if (mCopied) {
             // Not possible to be copied and not have a nextKvs, because
             // otherwise where did we copy everything into.
@@ -181,8 +183,7 @@ class KeyValueStore {
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
-    // TODO: Add a real hash function.
-    int hash(const int key) const { return mHash(key) >> (mKvs.size() - 1); }
+    size_t hash(const K key) const { return mHash(key) >> (mKvs.size() - 1); }
 
     void newKvs() {
 
@@ -190,7 +191,7 @@ class KeyValueStore {
         // if so not allocate memory.
 
         auto *ptr = new KeyValueStore(mKvs.size() * 2, mMaxLoadRatio);
-        KeyValueStore *null_lvalue = nullptr;
+        KeyValueStore<K, V> *null_lvalue = nullptr;
         // Only thread should win the race and put the newKvs into place.
         if (!mNextKvs.compare_exchange_strong(null_lvalue, ptr)) {
             // Allocated for nothing, some other thread beat us,
@@ -214,20 +215,23 @@ class KeyValueStore {
     }
 
     void copySlot(size_t idx) {
-        DataWrapper *copiedMarker = new DataWrapper(COPIED_DEAD);
+        DataWrapper<K> *keyCopiedMarker = new DataWrapper<K>(K(), COPIED_DEAD);
 
-        Slot *slot = &mKvs[idx];
+        Slot<K, V> *slot = &mKvs[idx];
         auto key = slot->key();
         assert(!key->dead());
 
         // Let's see if we can put a COPIED state into an EMPTY key:
         if (key->empty()) {
-            if (slot->casKey(key, copiedMarker))
+            if (slot->casKey(key, keyCopiedMarker))
                 return;
             // Key was EMPTY when we last checked, but not by the time the
             // cas was attempted so we need to copy the value into the new
             // kvs.
         }
+
+		delete keyCopiedMarker;
+        DataWrapper<V> *valueCopiedMarker = new DataWrapper<V>(V(), COPIED_DEAD);
 
         // key wasn't EMPTY so we need to forward the value into the new table.
         while (true) {
@@ -241,7 +245,7 @@ class KeyValueStore {
             assert(mNextKvs != nullptr);
 
             if (value->state() == TOMB_STONE) {
-                delete copiedMarker;
+                delete valueCopiedMarker;
                 return;
             }
 
@@ -254,7 +258,7 @@ class KeyValueStore {
                 continue;
             }
 
-            if (slot->casValue(value, copiedMarker)) {
+            if (slot->casValue(value, valueCopiedMarker)) {
                 nextKvs()->insert({key->data(), data}, COPIED_ALIVE);
                 mSize--;
                 return;
@@ -281,14 +285,14 @@ class KeyValueStore {
         assert(endIdx <= mKvs.size());
     }
 
-    Slot *insertKey(int key) {
-        const DataWrapper *desiredKey = new DataWrapper(key);
+    Slot<K,V> *insertKey(const K key) {
+        const DataWrapper<K> *desiredKey = new DataWrapper<K>(key, ALIVE);
         int idx = hash(desiredKey->data());
         auto *slot = &mKvs[idx];
 
         while (true) {
-            const DataWrapper *currentKey = slot->key();
-            // Check if we've found an open space:
+            const DataWrapper<K> *currentKey = slot->key();
+            // Check if we've fo und an open space:
             if (currentKey->empty()) {
                 // Not 100% sure what the difference is here between _strong and
                 // _weak:
@@ -333,12 +337,12 @@ class KeyValueStore {
         return slot;
     }
 
-    int insertValue(Slot *slot, int value, DataState valueState) {
+    V insertValue(Slot<K,V> *slot, V value, DataState valueState) {
         assert(valueState == COPIED_ALIVE || valueState == ALIVE);
-        const DataWrapper *desiredValue = new DataWrapper(value, valueState);
+        const DataWrapper<V> *desiredValue = new DataWrapper<V>(value, valueState);
 
         while (true) {
-            const DataWrapper *currentValue = slot->value();
+            const DataWrapper<V> *currentValue = slot->value();
 
             const bool canReplaceWithValueFromOldKvs =
                 (currentValue->empty() || currentValue->fromPrevKvs());
@@ -363,8 +367,8 @@ class KeyValueStore {
         }
     }
 
-    int insertKvs(const std::pair<int, int> &val, const DataState valueState) {
-        Slot *slot = insertKey(val.first);
+    V insertKvs(const std::pair<K, V> &val, const DataState valueState) {
+        Slot<K, V> *slot = insertKey(val.first);
         if (slot == nullptr) {
             // We failed to get a keySlot and a resize is required. Let's start
             // again and check if we can use the new kvs or allocate one
@@ -374,7 +378,7 @@ class KeyValueStore {
         return insertValue(slot, val.second, valueState);
     }
 
-    bool eraseKvs(const int key) {
+    bool eraseKvs(const K key) {
         int slotIdx = hash(key);
 
         while (true) {
@@ -394,10 +398,10 @@ class KeyValueStore {
             slotIdx = clip(slotIdx + 1);
         }
 
-        DataWrapper *tombStone = new DataWrapper(TOMB_STONE);
+        DataWrapper<V> *tombStone = new DataWrapper<V>(V(), TOMB_STONE);
         while (true) {
             auto &slot = mKvs[slotIdx];
-            const DataWrapper *slotValue = slot.value();
+            const DataWrapper<V> *slotValue = slot.value();
 
             // If we find a TOMB_STONE somebody else has already deleted the
             // value, so we can return true, we're done.
@@ -425,7 +429,7 @@ class KeyValueStore {
         assert(false);
     }
 
-    int insert(const std::pair<int, int> &val, const DataState valueState) {
+    V insert(const std::pair<K, V> &val, const DataState valueState) {
         if (resizeRequired()) {
             newKvs();
         }
@@ -451,28 +455,28 @@ class KeyValueStore {
     }
 
     std::atomic<uint64_t> mSize{};
-    std::vector<Slot> mKvs;
+    std::vector<Slot<K,V>> mKvs;
     std::atomic<KeyValueStore *> mNextKvs = nullptr;
     std::atomic<size_t> mCopyIdx;
     std::atomic<size_t> mNumReaders = 0;
     // ZZZ: Why does this need to be volatile.
     volatile bool mCopied = false;
     const float mMaxLoadRatio;
-    std::hash<int> mHash;
+    std::hash<K> mHash;
 };
 
-class ConcurrentUnorderedMap {
+template <typename K, typename V> class ConcurrentUnorderedMap {
   public:
     ConcurrentUnorderedMap(int exp = 5,
                            float maxLoadRatio = DEFAULT_MAX_LOAD_RATIO)
-        : mHeadKvs(new KeyValueStore(std::pow(2, exp), maxLoadRatio)) {}
+        : mHeadKvs(new KeyValueStore<K, V>(std::pow(2, exp), maxLoadRatio)) {}
 
-    int insert(const std::pair<int, int> &val) {
+    V insert(const std::pair<K, V> &val) {
         tryUpdateKvsHead();
         return mHeadKvs.load()->insert(val);
     }
 
-    int at(const int key) const { return mHeadKvs.load()->at(key); }
+    V at(const K key) const { return mHeadKvs.load()->at(key); }
 
     size_t bucket_count() const { return mHeadKvs.load()->bucket_count(); }
 
@@ -482,7 +486,7 @@ class ConcurrentUnorderedMap {
 
     size_t depth() const {
         size_t depth = 0;
-        KeyValueStore *kvs = mHeadKvs;
+        KeyValueStore<K, V> *kvs = mHeadKvs;
         while (true) {
             if (kvs->nextKvs() == nullptr) {
                 break;
@@ -494,7 +498,8 @@ class ConcurrentUnorderedMap {
     }
 
     // This should be templated to handle different types of maps.
-    bool operator==(const std::unordered_map<int, int> &other) const {
+    bool operator==(const std::unordered_map<K, V> &other) const {
+        // TODO: this check should be put back.
         // if (size() != other.size())
         //     return false;
 
@@ -511,7 +516,7 @@ class ConcurrentUnorderedMap {
         return true;
     }
 
-    void erase(int key) { mHeadKvs.load()->erase(key); }
+    void erase(const K key) { mHeadKvs.load()->erase(key); }
 
   private:
     void tryUpdateKvsHead() {
@@ -527,7 +532,7 @@ class ConcurrentUnorderedMap {
             }
         }
     }
-    std::atomic<KeyValueStore *> mHeadKvs;
+    std::atomic<KeyValueStore<K, V> *> mHeadKvs;
 };
 
 #endif // MAP_H
