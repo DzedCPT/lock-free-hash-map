@@ -1,7 +1,6 @@
 #ifndef MAP_H
 #define MAP_H
 
-#include <iostream>
 #include <limits>
 #include <list>
 #include <optional>
@@ -50,13 +49,9 @@ class Slot {
         return mKey.compare_exchange_strong(expected, desired);
     }
 
-	const DataWrapper* key() const {
-		return mKey.load();
-	}
-	
-	const DataWrapper* value() const {
-		return mValue.load();
-	}
+    const DataWrapper *key() const { return mKey.load(); }
+
+    const DataWrapper *value() const { return mValue.load(); }
 
   private:
     std::atomic<const DataWrapper *> mKey{};
@@ -72,7 +67,7 @@ class KeyValueStore {
   public:
     KeyValueStore(int size) : mKvs(std::vector<Slot>(size)) {}
 
-    uint64_t size() const {
+    size_t size() const {
         size_t s = mSize;
         if (mNextKvs != nullptr) {
             s += mNextKvs.load()->size();
@@ -94,101 +89,6 @@ class KeyValueStore {
             return mNextKvs.load()->bucket_count();
         }
         return mKvs.size();
-    }
-
-    bool resizeRequired() const { return size() > mKvs.size() * MAX_LOAD_FACTOR; }
-
-    void allocateNewKvs() {
-
-        // You could check here if anybody else has already started a resize and
-        // if so not allocate memory.
-
-        auto *ptr = new KeyValueStore(mKvs.size() * 2);
-        KeyValueStore *x = nullptr;
-        // Only thread should win the race and put the newKvs into place.
-        auto s = mNextKvs.compare_exchange_strong(x, ptr);
-        if (!s) {
-            // Allocated for nothing, some other thread beat us,
-            // so cleanup our mess.
-            delete ptr;
-        }
-    }
-
-    std::optional<size_t> getCopyWork() {
-        auto startIdx = mCopyIdx.load();
-        if (startIdx >= mKvs.size()) {
-            return std::nullopt;
-        }
-
-        size_t endIdx = startIdx + COPY_CHUNK_SIZE;
-        if (!mCopyIdx.compare_exchange_strong(startIdx, endIdx)) {
-            // Another thread claimed this work before us.
-            return std::nullopt;
-        }
-        return startIdx;
-    }
-
-    void doCopy(size_t slot) {
-
-        DataWrapper *copiedMarker = new DataWrapper(COPIED);
-        // TODO: This loop should never try twice, so you could assert that.
-        while (true) {
-            auto pair = &mKvs[slot];
-            auto key = pair->key();
-
-            assert(!key->copied());
-            // first case the slot has no key.
-            if (key->empty()) {
-                auto succes = pair->casKey(key, copiedMarker);
-                if (succes) {
-                    return;
-                }
-                continue;
-            }
-
-            // Second case the slot has a key.
-            // We need to copy the value to the new table.
-            break;
-        }
-
-        while (true) {
-            auto pair = &mKvs[slot];
-            auto key = pair->key();
-            assert(!key->empty());
-            assert(!key->copied());
-
-            auto value = pair->value();
-            assert(!value->copied());
-            assert(!value->empty());
-            assert(mNextKvs != nullptr);
-
-            auto success = pair->casValue(value, copiedMarker);
-            if (success) {
-                // TODO: This will currently overwrite the value in the new
-                // table if a new value has been written after the copy started.
-                mNextKvs.load()->insert({key->data(), value->data()});
-                mSize--;
-                return;
-            }
-        }
-    }
-
-    void doCopyWork() {
-
-        const auto workStartIdxOpt = getCopyWork();
-        if (!workStartIdxOpt.has_value()) {
-            // No work to do.
-            return;
-        }
-
-        auto workStartIdx = workStartIdxOpt.value();
-        for (auto i = workStartIdx; i < workStartIdx + COPY_CHUNK_SIZE; i++) {
-            doCopy(i);
-        }
-
-        if (workStartIdx + COPY_CHUNK_SIZE == mKvs.size()) {
-            mCopied = true;
-        }
     }
 
     // According to the spec this should return: pair<iterator,bool> insert (
@@ -313,12 +213,106 @@ class KeyValueStore {
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
+    void allocateNewKvs() {
+
+        // You could check here if anybody else has already started a resize and
+        // if so not allocate memory.
+
+        auto *ptr = new KeyValueStore(mKvs.size() * 2);
+        KeyValueStore *x = nullptr;
+        // Only thread should win the race and put the newKvs into place.
+        auto s = mNextKvs.compare_exchange_strong(x, ptr);
+        if (!s) {
+            // Allocated for nothing, some other thread beat us,
+            // so cleanup our mess.
+            delete ptr;
+        }
+    }
+
+    std::optional<size_t> getCopyWork() {
+        auto startIdx = mCopyIdx.load();
+        if (startIdx >= mKvs.size()) {
+            return std::nullopt;
+        }
+
+        size_t endIdx = startIdx + COPY_CHUNK_SIZE;
+        if (!mCopyIdx.compare_exchange_strong(startIdx, endIdx)) {
+            // Another thread claimed this work before us.
+            return std::nullopt;
+        }
+        return startIdx;
+    }
+
+    void doCopy(size_t slot) {
+
+        DataWrapper *copiedMarker = new DataWrapper(COPIED);
+        // TODO: This loop should never try twice, so you could assert that.
+        while (true) {
+            auto pair = &mKvs[slot];
+            auto key = pair->key();
+
+            assert(!key->copied());
+            // first case the slot has no key.
+            if (key->empty()) {
+                auto succes = pair->casKey(key, copiedMarker);
+                if (succes) {
+                    return;
+                }
+                continue;
+            }
+
+            // Second case the slot has a key.
+            // We need to copy the value to the new table.
+            break;
+        }
+
+        while (true) {
+            auto pair = &mKvs[slot];
+            auto key = pair->key();
+            assert(!key->empty());
+            assert(!key->copied());
+
+            auto value = pair->value();
+            assert(!value->copied());
+            assert(!value->empty());
+            assert(mNextKvs != nullptr);
+
+            auto success = pair->casValue(value, copiedMarker);
+            if (success) {
+                // TODO: This will currently overwrite the value in the new
+                // table if a new value has been written after the copy started.
+                mNextKvs.load()->insert({key->data(), value->data()});
+                mSize--;
+                return;
+            }
+        }
+    }
+
+    void doCopyWork() {
+
+        const auto workStartIdxOpt = getCopyWork();
+        if (!workStartIdxOpt.has_value()) {
+            // No work to do.
+            return;
+        }
+
+        auto workStartIdx = workStartIdxOpt.value();
+        for (auto i = workStartIdx; i < workStartIdx + COPY_CHUNK_SIZE; i++) {
+            doCopy(i);
+        }
+
+        if (workStartIdx + COPY_CHUNK_SIZE == mKvs.size()) {
+            mCopied = true;
+        }
+    }
+
+    bool resizeRequired() const {
+        return size() > mKvs.size() * MAX_LOAD_FACTOR;
+    }
     size_t clip(const size_t slot) const {
         // TODO: Add comment here on how this works?
         return slot & (mKvs.size() - 1);
     }
-
-
 
     std::atomic<uint64_t> mSize{};
     std::vector<Slot> mKvs;
@@ -331,7 +325,8 @@ class KeyValueStore {
 
 class ConcurrentUnorderedMap {
   public:
-    ConcurrentUnorderedMap(int exp = 5) : head(new KeyValueStore(std::pow(2, exp))) {}
+    ConcurrentUnorderedMap(int exp = 5)
+        : head(new KeyValueStore(std::pow(2, exp))) {}
 
     std::atomic<KeyValueStore *> head;
 
