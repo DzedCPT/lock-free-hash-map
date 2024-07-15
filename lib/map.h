@@ -21,7 +21,7 @@ class DataWrapper {
     DataWrapper(int value) : mData(value), mState(ALIVE) {}
     DataWrapper(DataState state) : mData(0), mState(state) {}
 
-    bool empty() const { return mState == EMPTY; }
+    bool empty() const { return !(mState == ALIVE || mState == COPIED) ; }
     bool copied() const { return mState == COPIED; }
     bool alive() const { return mState == ALIVE; }
     int data() const { return mData; }
@@ -281,11 +281,15 @@ class KeyValueStore {
                     ++mSize;
                     break;
                 }
+				// We saw an empty key but failed to CAS our key in.
+				// - Either another thread CAS'd its key in before us.
+				// - Or an earlier CAS is not yet visible to this thread.
+				// Either way we don't have up-to-date information on what
+				// key is stored in the current slot, meaning we need to 
+				// start again.
+				continue;
             }
 
-            // Maybe the key is already inserted?
-            // TODO: Reason about if it's safe to dereference the key here?
-            // I think it is because key's in a single slot should never change.
             if (currentKey->data() == desiredKey->data()) {
                 // The current key has the same value as the one were trying to
                 // insert. So we can just use the current key but need to not
