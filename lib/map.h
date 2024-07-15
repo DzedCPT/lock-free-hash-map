@@ -14,30 +14,31 @@ enum NodeState {
     ALIVE,
     COPIED,
 };
-class Node {
-  public:
-    Node() : mValue(0), mState(EMPTY) {}
-    Node(int value) : mValue(value), mState(ALIVE) {}
-    Node(NodeState copied) : mState(copied) {}
 
-    int mValue = 0;
+class DataWrapper {
+  public:
+    DataWrapper(int value) : mData(value), mState(ALIVE) {}
+    DataWrapper(NodeState state) : mData(0), mState(state) {}
+
     bool empty() const { return mState == EMPTY; }
     bool copied() const { return mState == COPIED; }
     bool alive() const { return mState == ALIVE; }
+    int data() const { return mData; }
 
   private:
+    const int mData = 0;
     NodeState mState = EMPTY;
 };
 
 class KeyValuePair {
   public:
-    std::atomic<const Node *> mKey{};
-    std::atomic<const Node *> mValue{};
+    std::atomic<const DataWrapper *> mKey{};
+    std::atomic<const DataWrapper *> mValue{};
 
     KeyValuePair() {
 
-        mKey.store(new Node());
-        mValue.store(new Node());
+        mKey.store(new DataWrapper(EMPTY));
+        mValue.store(new DataWrapper(EMPTY));
     }
 };
 
@@ -110,7 +111,7 @@ class Impl {
 
     void doCopy(std::size_t slot) {
 
-        Node *copiedMarker = new Node(COPIED);
+        DataWrapper *copiedMarker = new DataWrapper(COPIED);
         // TODO: This loop should never try twice, so you could assert that.
         while (true) {
             auto pair = &mKvs[slot];
@@ -148,7 +149,7 @@ class Impl {
             if (success) {
                 // TODO: This will currently overwrite the value in the new
                 // table if a new value has been written after the copy started.
-                nextKvs.load()->insert({key->mValue, value->mValue});
+                nextKvs.load()->insert({key->data(), value->data()});
                 mSize--;
                 return;
             }
@@ -183,13 +184,13 @@ class Impl {
             doCopyWork();
             return nextKvs.load()->insert(val);
         }
-        const Node *putKey = new Node(val.first);
-        const Node *putValue = new Node(val.second);
-        int slot = hash(putKey->mValue, mKvs.size());
+        const DataWrapper *putKey = new DataWrapper(val.first);
+        const DataWrapper *putValue = new DataWrapper(val.second);
+        int slot = hash(putKey->data(), mKvs.size());
         auto *pair = &mKvs[slot];
 
         while (true) {
-            const Node *k = pair->mKey.load();
+            const DataWrapper *k = pair->mKey.load();
             // Check if we've found an open space:
             if (k->empty()) {
                 // Not 100% sure what the difference is here between _strong and
@@ -207,7 +208,7 @@ class Impl {
             // Maybe the key is already inserted?
             // TODO: Reason about if it's safe to dereference the key here?
             // I think it is because key's in a single slot should never change.
-            if (k->mValue == putKey->mValue) {
+            if (k->data() == putKey->data()) {
                 // The current key has the same value as the one were trying to
                 // insert. So we can just use the current key but need to not
                 // leak the memory of the newly allocated key.
@@ -220,14 +221,14 @@ class Impl {
         }
 
         while (true) {
-            const Node *v = pair->mValue.load();
+            const DataWrapper *v = pair->mValue.load();
 
             // TODO: Is the dereference safe?
             // TODO: Why is this safe! Maybe it isn't maybe it is.
-            if (v->mValue == putValue->mValue) {
+            if (v->data() == putValue->data()) {
                 // Value already in place so we're done.
                 delete putValue;
-                return v->mValue;
+                return v->data();
             }
 
             // const int currentValue = v->mValue;
@@ -239,7 +240,7 @@ class Impl {
                 // if (currentValue != EMPTY) {
                 //     delete currentValue;
                 // }
-                return putValue->mValue;
+                return putValue->data();
             }
         }
     }
@@ -256,7 +257,7 @@ class Impl {
         while (true) {
             const auto &d = mKvs[slot];
             const auto currentKeyValue = d.mKey.load();
-            if (currentKeyValue->mValue == key && currentKeyValue->alive()) {
+            if (currentKeyValue->data() == key && currentKeyValue->alive()) {
                 auto value = d.mValue.load();
                 if (value->copied()) {
                     if (nextKvs == nullptr) {
@@ -273,7 +274,7 @@ class Impl {
                 // value is EMPTY, because it could be if another thread inserts
                 // a key before this thread looksup the key but the value hasn't
                 // been written into place by the other thread.
-                return value->mValue;
+                return value->data();
             }
             if (currentKeyValue->empty() || currentKeyValue->copied()) {
                 if (nextKvs == nullptr) {
@@ -296,7 +297,7 @@ class Impl {
     bool copied() const { return mCopied; }
 
 	bool hasActiveReaders()const {
-		return mNumReaders == 0;
+		return mNumReaders != 0;
 	}
 
   private:
@@ -327,16 +328,16 @@ class ConcurrentUnorderedMap {
 		// Surgically replace the head.
         auto headValue = head.load();
         auto nextKvs = headValue->getNextKvs();
-        // if (nextKvs != nullptr && headValue->copied() && !headValue->hasActiveReaders()) {
-        if (nextKvs != nullptr && headValue->copied() ) {
+        if (nextKvs != nullptr && headValue->copied() && !headValue->hasActiveReaders()) {
+        // if (nextKvs != nullptr && headValue->copied() ) {
         // if (nextKvs != nullptr && headValue->copied()) {
             // The current head is dead, since it's been copied into the kvs.
             // So we need to
 			auto success = head.compare_exchange_strong(headValue, nextKvs);
 			if (success) {
 				// We won so it's out responsibility to clean up the old Kvs
-				// TODO: Will need to put this back.
-				delete headValue;/* ; */
+				// TODO NB: Will need to put this back, but currently it creates segfault sometimes.
+				// delete headValue;/* ; */
 
 			}
         }
