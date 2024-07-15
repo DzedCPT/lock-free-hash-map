@@ -136,10 +136,12 @@ class KeyValueStore {
                         return nextKvs()->at(key);
                     }
                 }
-                // TODO: I think we need to check here if what we load from
-                // value is EMPTY, because it could be if another thread inserts
-                // a key before this thread looksup the key but the value hasn't
-                // been written into place by the other thread.
+                // If value is empty, we're tyring to read from a slot that's
+                // only partially set ie the key is set but not yet the value.
+                // So we need to start again until we can see the value or it's
+                // killed.
+                if (value->empty()) continue;
+				// Value found, let's return.
                 return value->data();
             }
             if (currentKeyValue->empty() || currentKeyValue->dead()) {
