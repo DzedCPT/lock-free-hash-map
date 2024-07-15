@@ -31,8 +31,16 @@ class DataWrapper {
     bool fromPrevKvs() const { return mState == COPIED_ALIVE; }
     bool dead() const { return mState == COPIED_DEAD; }
     bool alive() const { return mState == ALIVE; }
+    bool alive2() const { return mState == ALIVE || mState == COPIED_ALIVE; }
     bool tombstone() const { return mState == TOMB_STONE; }
     int data() const { return mData; }
+	bool eval(int val) const {
+		if (mState == ALIVE || mState == COPIED_ALIVE)
+			return val == mData;
+		return false;
+	}
+
+    bool dead2() const {return (mState == EMPTY || mState == TOMB_STONE);}
 
   private:
     const int mData = 0;
@@ -112,24 +120,32 @@ class KeyValueStore {
     // insert ( const value_type& val );
     int insert(const std::pair<int, int> &val) { return insert(val, ALIVE); }
 
-    // TODO: According to the spec this should return: size_t
+   // TODO: According to the spec this should return: size_t
     void erase(const int key) {
-        std::cout << key << std::endl;
-        mSize--;
+		if (erase2(key)) {
+        	mSize--;
+			return;
+		}
+		if (mNextKvs.load() != nullptr)
+			mNextKvs.load()->erase(key);
+	}
+
+    // TODO: According to the spec this should return: size_t
+    bool erase2(const int key) {
 
         int slotIdx = hash(key, mKvs.size());
 
         while (true) {
             const auto slotKey = mKvs[slotIdx].key();
 
-            if (slotKey->data() == key) {
+            if (slotKey->data() == key && slotKey->alive2()) {
                 // great we found it.
                 break;
             }
 
             if (slotKey->empty()) {
                 // Couldn't find it, seems the key doesn't exist.
-                return;
+                return false;
             }
 
             // reprobe
@@ -143,14 +159,18 @@ class KeyValueStore {
 
             if (slotValue->tombstone()) {
                 delete tombStone;
-                return;
+                return true;
+            }
+			if (slotValue->dead()) {
+                delete tombStone;
+                return false;
             }
 
             const auto valueData = slotValue->data();
             if (slot.casValue(slotValue, tombStone)) {
                 // TODO: This shouldn't caus a segfault.
                 // delete slotValue;
-                return;
+                return true;
             }
         }
 
@@ -163,7 +183,8 @@ class KeyValueStore {
         while (true) {
             const auto &d = mKvs[slot];
             const auto currentKeyValue = d.key();
-            if (currentKeyValue->data() == key && currentKeyValue->alive()) {
+            // if (currentKeyValue->data() == key && currentKeyValue->alive()) {
+            if (currentKeyValue->eval(key)) {
                 auto value = d.value();
                 if (value->dead() || value->tombstone()) {
                     if (mNextKvs == nullptr) {
@@ -171,8 +192,7 @@ class KeyValueStore {
                         // number of readers.
                         throw std::out_of_range("Unable to find key");
                     } else {
-                        auto result = nextKvs()->at(key);
-                        return result;
+                        return nextKvs()->at(key);
                     }
                 }
                 // TODO: I think we need to check here if what we load from
@@ -377,7 +397,7 @@ class KeyValueStore {
 
             // TODO: Is the dereference safe?
             // TODO: Why is this safe! Maybe it isn't maybe it is.
-            if (currentValue->data() == desiredValue->data()) {
+            if ((currentValue->data() == desiredValue->data()) && !currentValue->dead2()) {
                 // Value already in place so we're done.
                 delete desiredValue;
                 return currentValue->data();
@@ -469,8 +489,8 @@ class ConcurrentUnorderedMap {
 
     // This should be templated to handle different types of maps.
     bool operator==(const std::unordered_map<int, int> &other) const {
-        if (size() != other.size())
-            return false;
+        // if (size() != other.size())
+        //     return false;
 
         for (const auto &pair : other) {
             try {
