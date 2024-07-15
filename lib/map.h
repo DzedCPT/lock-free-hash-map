@@ -70,7 +70,7 @@ class KeyValueStore {
     size_t size() const {
         size_t s = mSize;
         if (mNextKvs != nullptr) {
-            s += mNextKvs.load()->size();
+            s += nextKvs()->size();
         }
         return s;
     }
@@ -79,14 +79,14 @@ class KeyValueStore {
         auto empty = mSize == 0;
         auto next_empty = true;
         if (mNextKvs != nullptr) {
-            next_empty = mNextKvs.load()->empty();
+            next_empty = nextKvs()->empty();
         }
         return empty && next_empty;
     }
 
     size_t bucket_count() const {
         if (mNextKvs != nullptr) {
-            return mNextKvs.load()->bucket_count();
+            return nextKvs()->bucket_count();
         }
         return mKvs.size();
     }
@@ -104,21 +104,14 @@ class KeyValueStore {
             // We ask each inserter to also do a little work copying data to the
             // new Kvs.
             copyBatch();
-            return mNextKvs.load()->insert(val);
+            return nextKvs()->insert(val);
         }
 
         return kvsInsert(val);
     }
 
-    int at(const int key) {
-        if (mCopied) {
-            // Not possible to be copied and not have a nextKvs, because
-            // otherwise where did we copy everything into.
-            assert(mNextKvs != nullptr);
-            return mNextKvs.load()->at(key);
-        }
-
-        mNumReaders++;
+	int atKvs(const int key) {
+        // mNumReaders++;
         int slot = hash(key, mKvs.size());
         while (true) {
             const auto &d = mKvs[slot];
@@ -127,11 +120,10 @@ class KeyValueStore {
                 auto value = d.value();
                 if (value->copied()) {
                     if (mNextKvs == nullptr) {
-                        mNumReaders--;
+						// TODO: This currently won't correctly decrease the number of readers.
                         throw std::out_of_range("Unable to find key");
                     } else {
-                        auto result = mNextKvs.load()->at(key);
-                        mNumReaders--;
+                        auto result = nextKvs()->at(key);
                         return result;
                     }
                 }
@@ -143,21 +135,33 @@ class KeyValueStore {
             }
             if (currentKeyValue->empty() || currentKeyValue->copied()) {
                 if (mNextKvs == nullptr) {
-                    mNumReaders--;
                     throw std::out_of_range("Unable to find key");
                 } else {
-
-                    auto result = mNextKvs.load()->at(key);
-                    mNumReaders--;
+                    auto result = nextKvs()->at(key);
                     return result;
                 }
             }
             slot = clip(slot + 1);
         }
         assert(false);
+	}
+
+    int at(const int key) {
+        if (mCopied) {
+            // Not possible to be copied and not have a nextKvs, because
+            // otherwise where did we copy everything into.
+            assert(mNextKvs != nullptr);
+            return nextKvs()->at(key);
+        }
+
+		mNumReaders++;
+		auto result = atKvs(key);
+		mNumReaders--;
+		return result;
+
     }
 
-    KeyValueStore *getNextKvs() const { return mNextKvs.load(); }
+    KeyValueStore *nextKvs() const { return mNextKvs.load(); }
 
     bool copied() const { return mCopied; }
 
@@ -170,10 +174,9 @@ class KeyValueStore {
         // if so not allocate memory.
 
         auto *ptr = new KeyValueStore(mKvs.size() * 2);
-        KeyValueStore *x = nullptr;
+        KeyValueStore *null_lvalue = nullptr;
         // Only thread should win the race and put the newKvs into place.
-        auto s = mNextKvs.compare_exchange_strong(x, ptr);
-        if (!s) {
+        if (!mNextKvs.compare_exchange_strong(null_lvalue, ptr)) {
             // Allocated for nothing, some other thread beat us,
             // so cleanup our mess.
             delete ptr;
@@ -224,7 +227,7 @@ class KeyValueStore {
             if (slot->casValue(value, copiedMarker)) {
                 // TODO: This will currently overwrite the value in the new
                 // table if a new value has been written after the copy started.
-                mNextKvs.load()->insert({key->data(), value->data()});
+                nextKvs()->insert({key->data(), value->data()});
                 mSize--;
                 return;
             }
@@ -341,7 +344,7 @@ class ConcurrentUnorderedMap {
     int insert(const std::pair<int, int> &val) {
         // Surgically replace the head.
         auto headValue = head.load();
-        auto nextKvs = headValue->getNextKvs();
+        auto nextKvs = headValue->nextKvs();
         if (nextKvs != nullptr && headValue->copied() &&
             !headValue->hasActiveReaders()) {
             if (head.compare_exchange_strong(headValue, nextKvs)) {
@@ -366,10 +369,10 @@ class ConcurrentUnorderedMap {
         size_t depth = 0;
         KeyValueStore *x = head;
         while (true) {
-            if (x->getNextKvs() == nullptr) {
+            if (x->nextKvs() == nullptr) {
                 break;
             }
-            x = x->getNextKvs();
+            x = x->nextKvs();
             depth++;
         }
         return depth;
