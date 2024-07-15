@@ -98,7 +98,7 @@ class KeyValueStore {
             allocateNewKvs();
         }
         if (mNextKvs != nullptr) {
-            doCopyWork();
+            copyBatch();
             return mNextKvs.load()->insert(val);
         }
         const DataWrapper *putKey = new DataWrapper(val.first);
@@ -229,7 +229,7 @@ class KeyValueStore {
         }
     }
 
-    std::optional<size_t> getCopyWork() {
+    std::optional<size_t> getCopyBatchIdx() {
         auto startIdx = mCopyIdx.load();
         if (startIdx >= mKvs.size()) {
             return std::nullopt;
@@ -243,42 +243,34 @@ class KeyValueStore {
         return startIdx;
     }
 
-    void doCopy(size_t slot) {
-
+    void copySlot(size_t idx) {
         DataWrapper *copiedMarker = new DataWrapper(COPIED);
-        // TODO: This loop should never try twice, so you could assert that.
-        while (true) {
-            auto pair = &mKvs[slot];
-            auto key = pair->key();
 
-            assert(!key->copied());
-            // first case the slot has no key.
-            if (key->empty()) {
-                auto succes = pair->casKey(key, copiedMarker);
-                if (succes) {
-                    return;
-                }
-                continue;
-            }
+        Slot *slot = &mKvs[idx];
+        auto key = slot->key();
+        assert(!key->copied());
 
-            // Second case the slot has a key.
-            // We need to copy the value to the new table.
-            break;
+		// Let's see if we can put an COPIED state into an EMPTY key:
+        if (key->empty()) {
+            if (slot->casKey(key, copiedMarker))
+                return;
+			// Key was EMPTY when we last checked, but not by the time the
+			// cas was attempted so we need to copy the value into the new
+			// kvs.
         }
 
+		// key wasn't EMPTY so we need to forward the value into the new table.
         while (true) {
-            auto pair = &mKvs[slot];
-            auto key = pair->key();
-            assert(!key->empty());
-            assert(!key->copied());
+            auto value = slot->value();
 
-            auto value = pair->value();
+			// Some assertions for my sanity.
+            assert(!slot->key()->empty());
+            assert(!slot->key()->copied());
             assert(!value->copied());
             assert(!value->empty());
             assert(mNextKvs != nullptr);
 
-            auto success = pair->casValue(value, copiedMarker);
-            if (success) {
+            if (slot->casValue(value, copiedMarker)) {
                 // TODO: This will currently overwrite the value in the new
                 // table if a new value has been written after the copy started.
                 mNextKvs.load()->insert({key->data(), value->data()});
@@ -286,24 +278,26 @@ class KeyValueStore {
                 return;
             }
         }
+		assert(false);
     }
 
-    void doCopyWork() {
-
-        const auto workStartIdxOpt = getCopyWork();
-        if (!workStartIdxOpt.has_value()) {
-            // No work to do.
+    void copyBatch() {
+        const auto batchStartIdx = getCopyBatchIdx();
+        if (!batchStartIdx.has_value()) {
+            // Either the copy is done or another thread got the work.
             return;
         }
 
-        auto workStartIdx = workStartIdxOpt.value();
-        for (auto i = workStartIdx; i < workStartIdx + COPY_CHUNK_SIZE; i++) {
-            doCopy(i);
-        }
+        const size_t startIdx = batchStartIdx.value();
+        const size_t endIdx = startIdx + COPY_CHUNK_SIZE;
 
-        if (workStartIdx + COPY_CHUNK_SIZE == mKvs.size()) {
+        for (auto i = startIdx; i < endIdx; i++)
+            copySlot(i);
+
+        if (endIdx == mKvs.size())
             mCopied = true;
-        }
+
+        assert(endIdx <= mKvs.size());
     }
 
     bool resizeRequired() const {
