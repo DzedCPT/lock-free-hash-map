@@ -12,15 +12,28 @@
 inline const static int *EMPTY = new int(42);
 inline const static int *TOMBSTONE = new int(42);
 
+class Node {
+  public:
+    Node() : mValue(0), mEmpty(true) {}
+    Node(int value) : mValue(value), mEmpty(false) {}
+
+    int mValue;
+    // TODO: This should probably be a state.
+    bool empty() const { return mEmpty; }
+
+  private:
+    bool mEmpty = true;
+};
+
 class KeyValuePair {
   public:
-
-    std::atomic<const int *> mKey{};
-    std::atomic<const int *> mValue{};
+    std::atomic<const Node *> mKey{};
+    std::atomic<const Node *> mValue{};
 
     KeyValuePair() {
-        mKey.store(EMPTY);
-        mValue.store(EMPTY);
+
+        mKey.store(new Node());
+        mValue.store(new Node());
     }
 };
 
@@ -68,7 +81,7 @@ class Impl {
 
         auto *ptr = new Impl(mKvs.size() * 2);
         Impl *x = nullptr;
-		// Only thread should win the race and put the newKvs into place.
+        // Only thread should win the race and put the newKvs into place.
         auto s = nextKvs.compare_exchange_strong(x, ptr);
         if (!s) {
             // Allocated for nothing, some other thread beat us,
@@ -86,20 +99,21 @@ class Impl {
         if (nextKvs != nullptr) {
             return nextKvs.load()->insert(val);
         }
-        const int *putKey = new int(val.first);
-        const int *putValue = new int(val.second);
-        int slot = hash(*putKey, mKvs.size());
+        const Node *putKey = new Node(val.first);
+        const Node *putValue = new Node(val.second);
+        int slot = hash(putKey->mValue, mKvs.size());
         auto *pair = &mKvs[slot];
 
         while (true) {
-            auto &k = pair->mKey;
+            const Node *k = pair->mKey.load();
             // Check if we've found an open space:
-            if (k == EMPTY) {
+            if (k->empty()) {
                 // Not 100% sure what the difference is here between _strong and
                 // _weak:
                 // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
 
-                if (auto success = k.compare_exchange_strong(EMPTY, putKey)) {
+				// ZZZ: Pull some of this below out in multiple lines.
+                if (auto success = pair->mKey.compare_exchange_strong(k, putKey)) {
                     ++mSize;
                     break;
                 }
@@ -108,7 +122,7 @@ class Impl {
             // Maybe the key is already inserted?
             // TODO: Reason about if it's safe to dereference the key here?
             // I think it is because key's in a single slot should never change.
-            if (*k == *putKey) {
+            if (k->mValue == putKey->mValue) {
                 // The current key has the same value as the one were trying to
                 // insert. So we can just use the current key but need to not
                 // leak the memory of the newly allocated key.
@@ -121,24 +135,26 @@ class Impl {
         }
 
         while (true) {
-            auto &v = pair->mValue;
+            const Node* v = pair->mValue.load();
 
             // TODO: Is the dereference safe?
-            if (*v == *putValue) {
+			// TODO: Why is this safe! Maybe it isn't maybe it is.
+            if (v->mValue == putValue->mValue) {
                 // Value already in place so we're done.
                 delete putValue;
-                return *v;
+                return v->mValue;
             }
 
-            const int *currentValue = v.load();
+            // const int currentValue = v->mValue;
             if (auto success =
-                    v.compare_exchange_strong(currentValue, putValue)) {
+                    pair->mValue.compare_exchange_strong(v, putValue)) {
                 // We replaced the old value with a new one, so cleanup the old
                 // value.
-                if (currentValue != EMPTY) {
-                    delete currentValue;
-                }
-                return *putValue;
+				// TODO: How should I cleanup v here?
+                // if (currentValue != EMPTY) {
+                //     delete currentValue;
+                // }
+                return putValue->mValue;
             }
         }
     }
@@ -147,14 +163,14 @@ class Impl {
         while (true) {
             const auto &d = mKvs[slot];
             const auto currentKeyValue = d.mKey.load();
-            if (*currentKeyValue == key) {
+            if (currentKeyValue->mValue == key) {
                 // TODO: I think we need to check here if what we load from
                 // value is EMPTY, because it could be if another thread inserts
                 // a key before this thread looksup the key but the value hasn't
                 // been written into place by the other thread.
-                return *d.mValue.load();
+                return d.mValue.load()->mValue;
             }
-            if (currentKeyValue == EMPTY) {
+            if (currentKeyValue->empty() ) {
                 if (nextKvs == nullptr)
                     throw std::out_of_range("Unable to find key");
                 else

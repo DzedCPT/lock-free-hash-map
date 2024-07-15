@@ -149,13 +149,10 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
     // Make sure we pick a factor here higher than the load factor!
     const auto map = createRandomMap(startingBucketCount * 0.75);
 
-	// TODO: I know that if I increase this it will break on the cmap.bucket_count()
-	// function call
-    for (int i = 0; i < 100; i++) {
-        threadedMapInsert(cmap, map, 2);
+    for (int i = 0; i < 100000; i++) {
+        threadedMapInsert(cmap, map, 1000);
         // Should only resize once, so bucket count should end up beng twice
-        // the starting
-        // bucket size.
+        // the starting bucket size.
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
 		EXPECT_EQ(cmap, map);
 		// TODO: Next step, assert that the map cleans up earlier
