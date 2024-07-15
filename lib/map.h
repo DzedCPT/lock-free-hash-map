@@ -110,7 +110,7 @@ class KeyValueStore {
         return kvsInsert(val);
     }
 
-	int atKvs(const int key) {
+    int atKvs(const int key) {
         // mNumReaders++;
         int slot = hash(key, mKvs.size());
         while (true) {
@@ -120,7 +120,8 @@ class KeyValueStore {
                 auto value = d.value();
                 if (value->copied()) {
                     if (mNextKvs == nullptr) {
-						// TODO: This currently won't correctly decrease the number of readers.
+                        // TODO: This currently won't correctly decrease the
+                        // number of readers.
                         throw std::out_of_range("Unable to find key");
                     } else {
                         auto result = nextKvs()->at(key);
@@ -144,7 +145,7 @@ class KeyValueStore {
             slot = clip(slot + 1);
         }
         assert(false);
-	}
+    }
 
     int at(const int key) {
         if (mCopied) {
@@ -154,11 +155,10 @@ class KeyValueStore {
             return nextKvs()->at(key);
         }
 
-		mNumReaders++;
-		auto result = atKvs(key);
-		mNumReaders--;
-		return result;
-
+        mNumReaders++;
+        auto result = atKvs(key);
+        mNumReaders--;
+        return result;
     }
 
     KeyValueStore *nextKvs() const { return mNextKvs.load(); }
