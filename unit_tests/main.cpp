@@ -1,5 +1,5 @@
-#include "map.h"
 #include "gtest/gtest.h"
+#include "map.h"
 #include <iostream>
 #include <random>
 #include <stdexcept>
@@ -20,18 +20,18 @@ std::uniform_int_distribution<std::mt19937::result_type> dist(1, 100000);
 // and with many concurrent threads hoping to ensure all possible
 // orderings are covered. So you can increase these values to be more
 // confident
-const size_t THREAD_INTENSITY =
-    25;                          // How many threads to run at the same time.
-const size_t REPEATS = 1000; // How many times to repeat each test.
+size_t const THREAD_INTENSITY =
+    25;                       // How many threads to run at the same time.
+size_t const REPEATS = 1000;  // How many times to repeat each test.
 
-std::unordered_map<int, int> createRandomMap(const int n) {
+std::unordered_map<int, int> createRandomMap(int const n) {
     std::unordered_map<int, int> map;
     while (true) {
-        const auto key = dist(rng);
+        auto const key = dist(rng);
         if (map.find(key) != map.end()) {
             continue;
         }
-        const auto value = dist(rng);
+        auto const value = dist(rng);
         map.insert({key, value});
         if (map.size() == n) {
             return map;
@@ -40,16 +40,16 @@ std::unordered_map<int, int> createRandomMap(const int n) {
     assert(false);
 }
 
-void insertMapIntoConcurrentMap(const std::unordered_map<int, int> &map,
-                                ConcurrentUnorderedMap<int, int> &cmap) {
-    for (const auto &pair : map) {
+void insertMapIntoConcurrentMap(std::unordered_map<int, int> const& map,
+                                ConcurrentUnorderedMap<int, int>& cmap) {
+    for (auto const& pair : map) {
         cmap.insert({pair.first, pair.second});
     }
 }
 
-void deleteMapFromConcurrentMap(const std::unordered_map<int, int> &map,
-                                ConcurrentUnorderedMap<int, int> &cmap) {
-    for (const auto &pair : map) {
+void deleteMapFromConcurrentMap(std::unordered_map<int, int> const& map,
+                                ConcurrentUnorderedMap<int, int>& cmap) {
+    for (auto const& pair : map) {
         cmap.erase(pair.first);
     }
 }
@@ -84,15 +84,15 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Size) {
     ConcurrentUnorderedMap<int, int> cmap;
     // We don't want to test resize here so make the number of elements here (4)
     // less than the starting capacity of the cmap.
-    const auto map = createRandomMap(4);
+    auto const map = createRandomMap(4);
     insertMapIntoConcurrentMap(map, cmap);
     EXPECT_EQ(cmap.size(), map.size());
 }
 
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_SizeWithResize) {
     ConcurrentUnorderedMap<int, int> cmap;
-    const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
-    const auto map = createRandomMap(n);
+    auto const n = cmap.bucket_count() + (cmap.bucket_count() / 2);
+    auto const map = createRandomMap(n);
     insertMapIntoConcurrentMap(map, cmap);
     EXPECT_EQ(cmap.size(), map.size());
 }
@@ -108,7 +108,7 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt1) {
     ConcurrentUnorderedMap<int, int> cmap;
     // We don't want to test resize here so make the number of elements here (4)
     // less than the starting capacity of the cmap.
-    const auto map = createRandomMap(4);
+    auto const map = createRandomMap(4);
     insertMapIntoConcurrentMap(map, cmap);
     EXPECT_EQ(cmap, map);
 }
@@ -123,22 +123,22 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt3) {
     ConcurrentUnorderedMap<int, int> cmap;
     // Fill a map with excactly the number of elements that the underlying cmap
     // can hold to check it handles collisions and wrap around.
-    const auto map = createRandomMap(cmap.bucket_count());
+    auto const map = createRandomMap(cmap.bucket_count());
     insertMapIntoConcurrentMap(map, cmap);
     EXPECT_EQ(cmap, map);
 }
 
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Resize) {
     ConcurrentUnorderedMap<int, int> cmap;
-    const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
-    const auto map = createRandomMap(n);
+    auto const n = cmap.bucket_count() + (cmap.bucket_count() / 2);
+    auto const map = createRandomMap(n);
     insertMapIntoConcurrentMap(map, cmap);
     EXPECT_EQ(cmap, map);
 }
 
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Erase) {
     ConcurrentUnorderedMap<int, int> cmap;
-    const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
+    auto const n = cmap.bucket_count() + (cmap.bucket_count() / 2);
     auto map = createRandomMap(n);
     map[10] = 10;
     insertMapIntoConcurrentMap(map, cmap);
@@ -151,9 +151,9 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Erase) {
     EXPECT_THROW(cmap.at(10), std::out_of_range);
 }
 
-void threadedMapInsert(ConcurrentUnorderedMap<int, int> &cmap,
-                       const std::unordered_map<int, int> &map,
-                       const int nThreads) {
+void threadedMapInsert(ConcurrentUnorderedMap<int, int>& cmap,
+                       std::unordered_map<int, int> const& map,
+                       int const nThreads) {
     std::vector<std::thread> threads(nThreads);
 
     for (int i = 0; i < nThreads; i++) {
@@ -161,12 +161,12 @@ void threadedMapInsert(ConcurrentUnorderedMap<int, int> &cmap,
                                  std::ref(cmap));
     }
 
-    for (auto &t : threads) {
+    for (auto& t : threads) {
         t.join();
     }
 }
-std::vector<std::unordered_map<int, int>>
-divideMap(const std::unordered_map<int, int> &originalMap, int n) {
+std::vector<std::unordered_map<int, int>> divideMap(
+    std::unordered_map<int, int> const& originalMap, int n) {
     std::vector<std::unordered_map<int, int>> subMaps(n);
     int totalSize = originalMap.size();
     int subMapSize = totalSize / n;
@@ -184,10 +184,9 @@ divideMap(const std::unordered_map<int, int> &originalMap, int n) {
     return subMaps;
 }
 
-std::unordered_map<int, int>
-threadedMapInsertMapPerThread(ConcurrentUnorderedMap<int, int> &cmap,
-                              std::unordered_map<int, int> &m,
-                              const int nThreads) {
+std::unordered_map<int, int> threadedMapInsertMapPerThread(
+    ConcurrentUnorderedMap<int, int>& cmap, std::unordered_map<int, int>& m,
+    int const nThreads) {
     std::vector<std::unordered_map<int, int>> maps = divideMap(m, nThreads);
 
     std::vector<std::thread> threads(nThreads);
@@ -196,7 +195,7 @@ threadedMapInsertMapPerThread(ConcurrentUnorderedMap<int, int> &cmap,
                                  std::ref(cmap));
     }
 
-    for (auto &t : threads) {
+    for (auto& t : threads) {
         t.join();
     }
     return m;
@@ -206,7 +205,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
     // We don't want to test resize here so make the number of elements here
     // less than the starting capacity of the cmap.
     ConcurrentUnorderedMap<int, int> cmap;
-    const auto map = createRandomMap(4);
+    auto const map = createRandomMap(4);
 
     for (int i = 0; i < REPEATS; i++) {
         threadedMapInsert(cmap, map, THREAD_INTENSITY);
@@ -218,7 +217,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
     // We don't want to test resize here so make the number of elements here (4)
     // less than the starting capacity of the cmap.
     ConcurrentUnorderedMap<int, int> cmap;
-    const auto map = createRandomMap(4);
+    auto const map = createRandomMap(4);
 
     for (int i = 0; i < REPEATS; i++) {
         threadedMapInsert(cmap, map, THREAD_INTENSITY);
@@ -229,9 +228,9 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
     for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap;
-        const auto startingBucketCount = cmap.bucket_count();
+        auto const startingBucketCount = cmap.bucket_count();
         // Make sure we pick a factor here higher than the load factor!
-        const auto map = createRandomMap(startingBucketCount * 0.75);
+        auto const map = createRandomMap(startingBucketCount * 0.75);
 
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
@@ -251,9 +250,9 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
 
     for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap;
-        const auto startingBucketCount = cmap.bucket_count();
+        auto const startingBucketCount = cmap.bucket_count();
         // The +1 will trigger a second resize with load factor threshold 0.5.
-        const auto map = createRandomMap(startingBucketCount + 1);
+        auto const map = createRandomMap(startingBucketCount + 1);
 
         threadedMapInsert(cmap, map, THREAD_INTENSITY);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
@@ -273,7 +272,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_MaxLoadRatio) {
     for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap(5, 1.0);
 
-        const auto startingBucketCount = cmap.bucket_count() * 0.75;
+        auto const startingBucketCount = cmap.bucket_count() * 0.75;
         // Make sure we pick a factor here higher than the load factor!
         // const auto map = createRandomMap(startingBucketCount);
         std::unordered_map<int, int> map{};
@@ -306,8 +305,8 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
         // this, break out of it reprobe loop and use the new larger kvs.
         ConcurrentUnorderedMap<int, int> cmap(5, 1.0);
 
-        const auto startingBucketCount = cmap.bucket_count();
-        const auto map = createRandomMap(startingBucketCount + 10);
+        auto const startingBucketCount = cmap.bucket_count();
+        auto const map = createRandomMap(startingBucketCount + 10);
 
         threadedMapInsert(cmap, map, THREAD_INTENSITY);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
@@ -359,7 +358,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
         // Give each pair a new negative value, so we can check at the end if
         // the value in cmap at the end is the new (expected) or old value.
         int idx = 0;
-        for (auto &pair : m) {
+        for (auto& pair : m) {
             m[pair.first] = idx;
             idx--;
         }
@@ -396,7 +395,6 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Erase) {
 }
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_EraseDuringResize) {
-
     for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap(9, 0.5);
         auto map = createRandomMap(256);
@@ -421,7 +419,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_EraseDuringResize) {
     }
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

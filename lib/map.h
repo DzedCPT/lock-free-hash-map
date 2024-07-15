@@ -5,30 +5,32 @@
 
 namespace cmap {
 
-const float DEFAULT_MAX_LOAD_RATIO = 0.5;
-const size_t COPY_CHUNK_SIZE = 8;
+float const DEFAULT_MAX_LOAD_RATIO = 0.5;
+size_t const COPY_CHUNK_SIZE = 8;
 
-template <typename K, typename V> class KeyValueStore;
+template <typename K, typename V>
+class KeyValueStore;
 
-template <typename K, typename V> class ConcurrentUnorderedMap {
-  public:
+template <typename K, typename V>
+class ConcurrentUnorderedMap {
+   public:
     ConcurrentUnorderedMap(int exp = 5,
                            float maxLoadRatio = DEFAULT_MAX_LOAD_RATIO);
 
-    V insert(const std::pair<K, V> &val);
-    V at(const K key) const;
+    V insert(std::pair<K, V> const& val);
+    V at(K const key) const;
     std::size_t bucket_count() const;
     std::size_t size() const;
     bool empty() const;
     std::size_t depth() const;
 
-    bool operator==(const std::unordered_map<K, V> &other) const;
-    void erase(const K key);
+    bool operator==(std::unordered_map<K, V> const& other) const;
+    void erase(K const key);
 
-  private:
+   private:
     void tryUpdateKvsHead();
-    std::atomic<KeyValueStore<K, V> *> mHeadKvs;
+    std::atomic<KeyValueStore<K, V>*> mHeadKvs;
 };
-} // namespace cmap
+}  // namespace cmap
 
-#endif // MAP_H
+#endif  // MAP_H
