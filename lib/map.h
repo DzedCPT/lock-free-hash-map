@@ -21,6 +21,7 @@ class DataWrapper {
   public:
     DataWrapper(int value) : mData(value), mState(ALIVE) {}
     DataWrapper(DataState state) : mData(0), mState(state) {}
+    DataWrapper(int value, DataState state) : mData(value), mState(state) {}
 
     bool empty() const {
         return !(mState == ALIVE || mState == COPIED_DEAD ||
@@ -106,22 +107,7 @@ class KeyValueStore {
 
     // TODO: According to the spec this should return: pair<iterator,bool>
     // insert ( const value_type& val );
-    int insert(const std::pair<int, int> &val) {
-        if (resizeRequired()) {
-            newKvs();
-        }
-
-        // Resized table has been allocated so we should instead insert into
-        // that.
-        if (mNextKvs != nullptr) {
-            // We ask each inserter to also do a little work copying data to the
-            // new Kvs.
-            copyBatch();
-            return nextKvs()->insert(val);
-        }
-
-        return insertKvs(val);
-    }
+    int insert(const std::pair<int, int> &val) { return insert(val, false); }
 
     int atKvs(const int key) {
         // mNumReaders++;
@@ -247,9 +233,7 @@ class KeyValueStore {
             }
 
             if (slot->casValue(value, copiedMarker)) {
-                // TODO: This will currently overwrite the value in the new
-                // table if a new value has been written after the copy started.
-                nextKvs()->insert({key->data(), data});
+                nextKvs()->insert({key->data(), data}, true);
                 mSize--;
                 return;
             }
@@ -327,8 +311,9 @@ class KeyValueStore {
         return slot;
     }
 
-    int insertValue(Slot *slot, int value) {
-        const DataWrapper *desiredValue = new DataWrapper(value);
+    int insertValue(Slot *slot, int value, bool copied) {
+        const DataWrapper *desiredValue = new DataWrapper(value, COPIED_ALIVE);
+
         while (true) {
             const DataWrapper *currentValue = slot->value();
 
@@ -345,7 +330,7 @@ class KeyValueStore {
         }
     }
 
-    int insertKvs(const std::pair<int, int> &val) {
+    int insertKvs(const std::pair<int, int> &val, bool copied) {
         Slot *slot = insertKey(val.first);
         if (slot == nullptr) {
             // We failed to get a keySlot and a resize is required. Let's start
@@ -353,7 +338,24 @@ class KeyValueStore {
             // ourselves.
             return insert(val);
         }
-        return insertValue(slot, val.second);
+        return insertValue(slot, val.second, copied);
+    }
+
+    int insert(const std::pair<int, int> &val, bool copied) {
+        if (resizeRequired()) {
+            newKvs();
+        }
+
+        // Resized table has been allocated so we should instead insert into
+        // that.
+        if (mNextKvs != nullptr) {
+            // We ask each inserter to also do a little work copying data to the
+            // new Kvs.
+            copyBatch();
+            return nextKvs()->insert(val, copied);
+        }
+
+        return insertKvs(val, copied);
     }
 
     bool resizeRequired() const {
