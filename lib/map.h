@@ -46,9 +46,20 @@ class ConcurrentUnorderedMap {
         return mKvs.back()->size();
     }
 
+    bool resizeRequired() const { return size() > bucket_count() * mMaxLoad; }
+
+    void allocateNewKvs() {
+        const auto newSize = mKvs.back()->size() * 2;
+        mKvs.push_back(std::make_shared<std::vector<KeyValuePair>>(
+            std::vector<KeyValuePair>(newSize)));
+    }
+
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
     int insert(const std::pair<int, int> &val) {
+        if (resizeRequired()) {
+            allocateNewKvs();
+        }
         const int *putKey = new int(val.first);
         const int *putValue = new int(val.second);
         auto kvs = mKvs.back();
@@ -106,25 +117,35 @@ class ConcurrentUnorderedMap {
             }
         }
     }
-    int at(const int key) const {
-        const auto kvs = mKvs.back();
+    std::optional<int> at(const std::shared_ptr<std::vector<KeyValuePair>> &kvs,
+                          const int key) const {
         int slot = hash(key, kvs->size());
         while (true) {
             const auto &d = kvs->at(slot);
             const auto currentKeyValue = d.mKey.load();
             if (*currentKeyValue == key) {
-                return *d.mValue.load();
+                // TODO: I think we need to check here if what we load from
+                // value is EMPTY, because it could be if another thread inserts
+                // a key before this thread looksup the key but the value hasn't
+                // been written into place by the other thread.
+                return std::optional<int>(*d.mValue.load());
             }
             if (currentKeyValue == EMPTY) {
-                throw std::out_of_range("Unables to find key");
+                return std::nullopt;
             }
             slot = clip(slot + 1);
         }
-        // TODO: I think we need to check here if what we load from value is
-        // EMPTY, because it could be if another thread inserts a key before
-        // this thread looksup the key but the value hasn't been written into
-        // place by the other thread.
-        return *kvs->at(slot).mValue.load();
+        assert(false);
+    }
+
+    int at(const int key) const {
+        for (const auto &kvs : mKvs) {
+            auto result = at(kvs, key);
+            if (result.has_value()) {
+                return result.value();
+            }
+        }
+        throw std::out_of_range("Unable to find key");
     }
 
     // This should be templated to handle different types of maps.
@@ -143,6 +164,7 @@ class ConcurrentUnorderedMap {
     }
 
   private:
+    float mMaxLoad = 0.5;
     size_type clip(const size_type slot) const {
         // TODO: Add comment here on how this works?
         return slot & (mKvs.back()->size() - 1);

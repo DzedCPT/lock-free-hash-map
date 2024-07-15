@@ -49,6 +49,14 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Size) {
     EXPECT_EQ(cmap.size(), map.size());
 }
 
+TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_SizeWIthResize) {
+    ConcurrentUnorderedMap cmap;
+    const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
+    const auto map = createRandomMap(n);
+    insertMapIntoConcurrentMap(map, cmap);
+    EXPECT_EQ(cmap.size(), map.size());
+}
+
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Empty) {
     ConcurrentUnorderedMap cmap;
     ASSERT_TRUE(cmap.empty());
@@ -76,6 +84,14 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt3) {
     // Fill a map with excactly the number of elements that the underlying cmap
     // can hold to check it handles collisions and wrap around.
     const auto map = createRandomMap(cmap.bucket_count());
+    insertMapIntoConcurrentMap(map, cmap);
+    EXPECT_EQ(cmap, map);
+}
+
+TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Resize) {
+    ConcurrentUnorderedMap cmap;
+    const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
+    const auto map = createRandomMap(n);
     insertMapIntoConcurrentMap(map, cmap);
     EXPECT_EQ(cmap, map);
 }
