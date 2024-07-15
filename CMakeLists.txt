@@ -7,7 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS True)
 
 # Using Hunter as the package manager: https://hunter.readthedocs.io/en/latest/
 # So setup Hunter here:
-include("cmake/HunterGate.cmake")
+include("HunterGate.cmake")
 HunterGate(
     URL "https://github.com/ruslo/hunter/archive/v0.23.111.tar.gz"
     SHA1 "4189bbd869abe4eb69b5303d3f916c03d34dc154"
