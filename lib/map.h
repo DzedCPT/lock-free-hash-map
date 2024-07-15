@@ -38,6 +38,11 @@ class Slot {
         mValue.store(new DataWrapper(EMPTY));
     }
 
+    ~Slot() {
+        delete mKey.load();
+        delete mValue.load();
+    }
+
     bool casValue(const DataWrapper *expected, const DataWrapper *desired) {
         return mValue.compare_exchange_strong(expected, desired);
     }
