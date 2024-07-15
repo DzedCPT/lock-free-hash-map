@@ -21,8 +21,11 @@ inline int hash(const int key, const int capacity) { return key % capacity; }
 
 class ConcurrentUnorderedMap {
   public:
-    ConcurrentUnorderedMap(int capacity = 64)
-        : mCapacity(capacity), mData(std::vector<KeyValuePair>(capacity)) {}
+    ConcurrentUnorderedMap(int bucketCountExp = 5)
+        : mBucketCountExp(bucketCountExp),
+          mData(std::vector<KeyValuePair>(std::pow(2, bucketCountExp))),
+          mBetterName(std::numeric_limits<unsigned int>::max() >>
+                      ((sizeof(unsigned int) * 8) - (mBucketCountExp + 1))) {}
 
     uint64_t size() const { return mSize.load(); }
 
@@ -37,7 +40,7 @@ class ConcurrentUnorderedMap {
     int insert(const std::pair<int, int> &val) {
         int putKey = val.first;
         int putValue = val.second;
-        int slot = hash(putKey, mCapacity);
+        int slot = hash(putKey, mBucketCountExp);
         auto *pair = &mData[slot];
         while (true) {
             auto &k = pair->mKey;
@@ -59,7 +62,7 @@ class ConcurrentUnorderedMap {
                 break;
             }
 
-            slot = (slot + 1) % mCapacity;
+            slot = (slot + 1) & mBetterName;
             pair = &mData[slot];
         }
 
@@ -79,7 +82,7 @@ class ConcurrentUnorderedMap {
         }
     }
     int at(const int key) const {
-        int slot = hash(key, mCapacity);
+        int slot = hash(key, mBucketCountExp);
         while (true) {
             const auto &d = mData[slot];
             const auto currentKeyValue = d.mKey.load();
@@ -89,7 +92,7 @@ class ConcurrentUnorderedMap {
             if (currentKeyValue == mSentryValue) {
                 throw std::out_of_range("Unables to find key");
             }
-            slot = (slot + 1) % mCapacity;
+            slot = (slot + 1) & mBetterName;
         }
         return mData[slot].mValue.load();
     }
@@ -112,7 +115,8 @@ class ConcurrentUnorderedMap {
   private:
     std::atomic<uint64_t> mSize{};
     std::vector<KeyValuePair> mData;
-    int mCapacity;
+    int mBucketCountExp;
+    unsigned int mBetterName;
     int mSentryValue = -1;
 };
 
