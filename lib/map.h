@@ -27,6 +27,7 @@ class DataWrapper {
         return !(mState == ALIVE || mState == COPIED_DEAD ||
                  mState == COPIED_ALIVE);
     }
+    bool fromPrevKvs() const { return mState == COPIED_ALIVE; }
     bool dead() const { return mState == COPIED_DEAD; }
     bool alive() const { return mState == ALIVE; }
     int data() const { return mData; }
@@ -311,11 +312,20 @@ class KeyValueStore {
         return slot;
     }
 
-    int insertValue(Slot *slot, int value, bool copied) {
-        const DataWrapper *desiredValue = new DataWrapper(value, COPIED_ALIVE);
+    int insertValue(Slot *slot, int value, bool fromOldKvs) {
+        const auto dataState = fromOldKvs ? COPIED_ALIVE : ALIVE;
+        const DataWrapper *desiredValue = new DataWrapper(value, dataState);
 
         while (true) {
             const DataWrapper *currentValue = slot->value();
+
+            const bool canReplaceWithValueFromOldKvs =
+                (currentValue->empty() || currentValue->fromPrevKvs());
+
+            if (!canReplaceWithValueFromOldKvs && fromOldKvs) {
+                delete desiredValue;
+                return currentValue->data();
+            }
 
             // TODO: Is the dereference safe?
             // TODO: Why is this safe! Maybe it isn't maybe it is.
@@ -326,11 +336,12 @@ class KeyValueStore {
             }
 
             if (slot->casValue(currentValue, desiredValue))
+                // TODO: SHould we here delete current value?
                 return desiredValue->data();
         }
     }
 
-    int insertKvs(const std::pair<int, int> &val, bool copied) {
+    int insertKvs(const std::pair<int, int> &val, bool fromOldKvs) {
         Slot *slot = insertKey(val.first);
         if (slot == nullptr) {
             // We failed to get a keySlot and a resize is required. Let's start
@@ -338,10 +349,10 @@ class KeyValueStore {
             // ourselves.
             return insert(val);
         }
-        return insertValue(slot, val.second, copied);
+        return insertValue(slot, val.second, fromOldKvs);
     }
 
-    int insert(const std::pair<int, int> &val, bool copied) {
+    int insert(const std::pair<int, int> &val, bool fromOldKvs) {
         if (resizeRequired()) {
             newKvs();
         }
@@ -352,10 +363,10 @@ class KeyValueStore {
             // We ask each inserter to also do a little work copying data to the
             // new Kvs.
             copyBatch();
-            return nextKvs()->insert(val, copied);
+            return nextKvs()->insert(val, fromOldKvs);
         }
 
-        return insertKvs(val, copied);
+        return insertKvs(val, fromOldKvs);
     }
 
     bool resizeRequired() const {
