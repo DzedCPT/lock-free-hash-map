@@ -118,7 +118,8 @@ void threadedMapInsert(ConcurrentUnorderedMap &cmap,
 }
 
 // TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
-//     // We don't want to test resize here so make the number of elements here (4)
+//     // We don't want to test resize here so make the number of elements here
+//     (4)
 //     // less than the starting capacity of the cmap.
 //     ConcurrentUnorderedMap cmap;
 //     const auto map = createRandomMap(4);
@@ -143,20 +144,20 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
     for (int i = 0; i < 1000; i++) {
-    	ConcurrentUnorderedMap cmap;
-    	const auto startingBucketCount = cmap.bucket_count();
-    	// Make sure we pick a factor here higher than the load factor!
-    	const auto map = createRandomMap(startingBucketCount * 0.75);
+        ConcurrentUnorderedMap cmap;
+        const auto startingBucketCount = cmap.bucket_count();
+        // Make sure we pick a factor here higher than the load factor!
+        const auto map = createRandomMap(startingBucketCount * 0.75);
 
-        threadedMapInsert(cmap, map, 100);
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
         threadedMapInsert(cmap, map, 100);
+
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
-		EXPECT_EQ(cmap, map);
-		// assert that the depth is zero, ie that the originally smaller kvs
-		// got cleanup up.
-		EXPECT_EQ(cmap.depth(), 0);
+        EXPECT_EQ(cmap, map);
+        // assert that the depth is zero, ie that the originally smaller kvs
+        // got cleanup up.
+        EXPECT_EQ(cmap.depth(), 0);
     }
 }
 
@@ -165,10 +166,10 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
     // less than the starting capacity of the cmap.
 
     for (int i = 0; i < 1000; i++) {
-    	ConcurrentUnorderedMap cmap;
-    	const auto startingBucketCount = cmap.bucket_count();
-		// The +1 will trigger a second resize with load factor threshold 0.5.
-    	const auto map = createRandomMap(startingBucketCount + 1);
+        ConcurrentUnorderedMap cmap;
+        const auto startingBucketCount = cmap.bucket_count();
+        // The +1 will trigger a second resize with load factor threshold 0.5.
+        const auto map = createRandomMap(startingBucketCount + 1);
 
         threadedMapInsert(cmap, map, 100);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
@@ -195,6 +196,31 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_MaxLoadRatio) {
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
         EXPECT_EQ(cmap.bucket_count(), 32);
+        EXPECT_EQ(cmap, map);
+    }
+}
+
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
+	// This tests the following situation:
+	// - Inserter checks if kvs is full and sees that it *isn't*.
+	// - While trying to reprobe for an open spot the kvs fills up.
+	// In the setting above the inserter would get stuck reprobing the 
+	// full kvs indefinitely.
+	// This test genereates the situation above and makes suerthat there's
+	// some logic to break out of the insert and either allocate a new kvs
+	// yourself or use one another thread has allocated.
+
+    for (int i = 0; i < 1000; i++) {
+		// Set the resize ratio to 1.0 so that at the point of the resize the
+		// current is full, allowing us to check that a thread will detect
+		// this, break out of it reprobe loop and use the new larger kvs.
+        ConcurrentUnorderedMap cmap(5, 1.0);
+
+        const auto startingBucketCount = cmap.bucket_count();
+        const auto map = createRandomMap(startingBucketCount + 10);
+
+        threadedMapInsert(cmap, map, 100);
+        EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
         EXPECT_EQ(cmap, map);
         // assert that the depth is zero, ie that the originally smaller kvs
         // got cleanup up.

@@ -1,6 +1,7 @@
 #ifndef MAP_H
 #define MAP_H
 
+#include <iostream>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -115,7 +116,7 @@ class KeyValueStore {
             return nextKvs()->insert(val);
         }
 
-        return kvsInsert(val);
+        return insertKvs(val);
     }
 
     int atKvs(const int key) {
@@ -293,6 +294,16 @@ class KeyValueStore {
                 break;
             }
 
+            // So we failed to claim a key slot:
+            // If a resize is required let's not bother continueing to insert
+            // into this kvs, and instead check if we can insert into the new
+            // resized Kvs. NOTE: Without this check we could spin infinitely
+            // here looking for a key slot on a full kvs.
+            if (resizeRequired()) {
+                delete desiredKey;
+                return nullptr;
+            }
+
             // reprobe
             idx = clip(idx + 1);
             slot = &mKvs[idx];
@@ -318,12 +329,20 @@ class KeyValueStore {
         }
     }
 
-    int kvsInsert(const std::pair<int, int> &val) {
+    int insertKvs(const std::pair<int, int> &val) {
         Slot *slot = insertKey(val.first);
+        if (slot == nullptr) {
+            // We failed to get a keySlot and a resize is required. Let's start
+            // again and check if we can use the new kvs or allocate one
+            // ourselves.
+            return insert(val);
+        }
         return insertValue(slot, val.second);
     }
 
-    bool resizeRequired() const { return size() > mKvs.size() * mMaxLoadRatio; }
+    bool resizeRequired() const {
+        return size() >= mKvs.size() * mMaxLoadRatio;
+    }
     size_t clip(const size_t slot) const {
         // TODO: Add comment here on how this works?
         return slot & (mKvs.size() - 1);
