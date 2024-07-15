@@ -28,6 +28,10 @@ class ConcurrentUnorderedMap {
 
     bool empty() const { return mSize.load() == 0; }
 
+	std::size_t bucket_count() const {
+		return mCapacity;
+	}
+
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
     int insert(const std::pair<int, int> &val) {
