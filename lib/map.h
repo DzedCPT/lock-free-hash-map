@@ -46,6 +46,14 @@ class Slot {
         return mKey.compare_exchange_strong(expected, desired);
     }
 
+	const DataWrapper* key() const {
+		return mKey.load();
+	}
+	
+	const DataWrapper* value() const {
+		return mValue.load();
+	}
+
   private:
     std::atomic<const DataWrapper *> mKey{};
     std::atomic<const DataWrapper *> mValue{};
@@ -124,7 +132,7 @@ class Impl {
         // TODO: This loop should never try twice, so you could assert that.
         while (true) {
             auto pair = &mKvs[slot];
-            auto key = pair->mKey.load();
+            auto key = pair->key();
 
             assert(!key->copied());
             // first case the slot has no key.
@@ -143,11 +151,11 @@ class Impl {
 
         while (true) {
             auto pair = &mKvs[slot];
-            auto key = pair->mKey.load();
+            auto key = pair->key();
             assert(!key->empty());
             assert(!key->copied());
 
-            auto value = pair->mValue.load();
+            auto value = pair->value();
             assert(!value->copied());
             assert(!value->empty());
             assert(nextKvs != nullptr);
@@ -197,7 +205,7 @@ class Impl {
         auto *pair = &mKvs[slot];
 
         while (true) {
-            const DataWrapper *k = pair->mKey.load();
+            const DataWrapper *k = pair->key();
             // Check if we've found an open space:
             if (k->empty()) {
                 // Not 100% sure what the difference is here between _strong and
@@ -227,7 +235,7 @@ class Impl {
         }
 
         while (true) {
-            const DataWrapper *v = pair->mValue.load();
+            const DataWrapper *v = pair->value();
 
             // TODO: Is the dereference safe?
             // TODO: Why is this safe! Maybe it isn't maybe it is.
@@ -261,9 +269,9 @@ class Impl {
         int slot = hash(key, mKvs.size());
         while (true) {
             const auto &d = mKvs[slot];
-            const auto currentKeyValue = d.mKey.load();
+            const auto currentKeyValue = d.key();
             if (currentKeyValue->data() == key && currentKeyValue->alive()) {
-                auto value = d.mValue.load();
+                auto value = d.value();
                 if (value->copied()) {
                     if (nextKvs == nullptr) {
                         mNumReaders--;
