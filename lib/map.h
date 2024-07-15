@@ -1,11 +1,7 @@
 #ifndef MAP_H
 #define MAP_H
 
-#include <functional>
-#include <iostream>
-#include <stdexcept>
 #include <unordered_map>
-#include <vector>
 
 const float DEFAULT_MAX_LOAD_RATIO = 0.5;
 const size_t COPY_CHUNK_SIZE = 8;

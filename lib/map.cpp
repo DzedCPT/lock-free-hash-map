@@ -1,7 +1,6 @@
 #include "map.h"
 
 #include <functional>
-#include <iostream>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
