@@ -1,3 +1,4 @@
+#include "map.h"
 #include "gtest/gtest.h"
 #include <iostream>
 #include <thread>
@@ -5,20 +6,18 @@
 #include <unordered_map>
 #include <vector>
 
-void singleThreadInsert(std::unordered_map<int, int> &map,
-                        const int nElements) {
+void singleThreadInsert(Map &map, const int nElements) {
     for (int i = 0; i < nElements; i++) {
-        map.insert({i, i});
+        map.insert(i, i);
     }
 }
 
-void multiThreadInsert(std::unordered_map<int, int> &map, const int nThreads,
-                       const int nElements) {
-    std::vector<std::thread> threads;
+void multiThreadInsert(Map &map, const int nThreads, const int nElements) {
+
+    std::vector<std::thread> threads(nThreads);
 
     for (int i = 0; i < nThreads; i++) {
-        threads.push_back(
-            std::thread(singleThreadInsert, std::ref(map), nElements));
+        threads[i] = std::thread(singleThreadInsert, std::ref(map), nElements);
     }
 
     for (auto &t : threads) {
@@ -26,10 +25,32 @@ void multiThreadInsert(std::unordered_map<int, int> &map, const int nThreads,
     }
 }
 
-TEST(TestConcurrentHashMap, TestSize) {
-    std::unordered_map<int, int> map(20);
-    multiThreadInsert(map, 2, 10);
-    EXPECT_EQ(map.size(), 20);
+TEST(TestConcurrentHashMap, TestSizeSingleThread) {
+    Map map{};
+    multiThreadInsert(map, 1, 10);
+    EXPECT_EQ(map.size(), 10);
+}
+
+TEST(TestConcurrentHashMap, TestSingleThreadInsert) {
+    for (int i = 0; i < 1; i++) {
+        Map map{};
+        multiThreadInsert(map, 1, 10);
+
+        for (int i = 0; i < 10; i++) {
+            EXPECT_EQ(map.get(i), i);
+        }
+    }
+}
+
+TEST(TestConcurrentHashMap, TestMultiThreadInsert) {
+    for (int i = 0; i < 10000; i++) {
+        Map map{};
+        multiThreadInsert(map, 100, 10);
+
+        for (int i = 0; i < 10; i++) {
+            EXPECT_EQ(map.get(i), i);
+        }
+    }
 }
 
 int main(int argc, char **argv) {
