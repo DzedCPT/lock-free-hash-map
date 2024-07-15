@@ -129,8 +129,7 @@ class KeyValueStore {
                 auto value = d.value();
                 if (value->dead()) {
                     if (mNextKvs == nullptr) {
-                        // TODO: This currently won't correctly decrease the
-                        // number of readers.
+                        mNumReaders--;
                         throw std::out_of_range("Unable to find key");
                     } else {
                         return nextKvs()->at(key);
