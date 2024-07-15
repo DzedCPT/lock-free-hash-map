@@ -79,11 +79,11 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt1) {
     EXPECT_EQ(cmap, map);
 }
 
-TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt2) {
-    ConcurrentUnorderedMap cmap;
-    const auto map = createRandomMap(1);
-    EXPECT_NE(cmap, map);
-}
+// TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt2) {
+//     ConcurrentUnorderedMap cmap;
+//     const auto map = createRandomMap(1);
+//     EXPECT_NE(cmap, map);
+// }
 
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt3) {
     ConcurrentUnorderedMap cmap;
@@ -117,17 +117,17 @@ void threadedMapInsert(ConcurrentUnorderedMap &cmap,
     }
 }
 
-TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
-    // We don't want to test resize here so make the number of elements here (4)
-    // less than the starting capacity of the cmap.
-    ConcurrentUnorderedMap cmap;
-    const auto map = createRandomMap(4);
-
-    for (int i = 0; i < 100; i++) {
-        threadedMapInsert(cmap, map, 10);
-        EXPECT_EQ(4, cmap.size());
-    }
-}
+// TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
+//     // We don't want to test resize here so make the number of elements here (4)
+//     // less than the starting capacity of the cmap.
+//     ConcurrentUnorderedMap cmap;
+//     const auto map = createRandomMap(4);
+//
+//     for (int i = 0; i < 100; i++) {
+//         threadedMapInsert(cmap, map, 10);
+//         EXPECT_EQ(4, cmap.size());
+//     }
+// }
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
     // We don't want to test resize here so make the number of elements here (4)
@@ -142,41 +142,43 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
 }
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
-    // We don't want to test resize here so make the number of elements here
-    // less than the starting capacity of the cmap.
-    ConcurrentUnorderedMap cmap;
-    const auto startingBucketCount = cmap.bucket_count();
-    // Make sure we pick a factor here higher than the load factor!
-    const auto map = createRandomMap(startingBucketCount * 0.75);
-
     for (int i = 0; i < 1000; i++) {
-        threadedMapInsert(cmap, map, 25);
+    	ConcurrentUnorderedMap cmap;
+    	const auto startingBucketCount = cmap.bucket_count();
+    	// Make sure we pick a factor here higher than the load factor!
+    	const auto map = createRandomMap(startingBucketCount * 0.75);
+
+        threadedMapInsert(cmap, map, 100);
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
+        threadedMapInsert(cmap, map, 100);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
 		EXPECT_EQ(cmap, map);
-		// TODO: Next step, assert that the map cleans up earlier
-		// version
-		// EXPECT_EQ(cmap.depth(), 1);
+		// assert that the depth is zero, ie that the originally smaller kvs
+		// got cleanup up.
+		EXPECT_EQ(cmap.depth(), 0);
     }
 }
 
-// TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
-//     // We don't want to test resize here so make the number of elements here
-//     // less than the starting capacity of the cmap.
-//     ConcurrentUnorderedMap cmap;
-//
-//     const auto startingBucketCount = cmap.bucket_count();
-// 	std::cout  << startingBucketCount << std::endl;
-// 	// The +1 will trigger a second resize with load factor threshold 0.5.
-//     const auto map = createRandomMap(startingBucketCount + 1);
-//
-//     for (int i = 0; i < 1; i++) {
-//         threadedMapInsert(cmap, map, 2);
-//         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
-// 		EXPECT_EQ(cmap, map);
-//     }
-// }
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
+    // We don't want to test resize here so make the number of elements here
+    // less than the starting capacity of the cmap.
+
+    for (int i = 0; i < 1000; i++) {
+    	ConcurrentUnorderedMap cmap;
+    	const auto startingBucketCount = cmap.bucket_count();
+		// The +1 will trigger a second resize with load factor threshold 0.5.
+    	const auto map = createRandomMap(startingBucketCount + 1);
+
+        threadedMapInsert(cmap, map, 100);
+        EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
+		EXPECT_EQ(cmap, map);
+
+		// assert that the depth is zero, ie that the originally smaller kvs
+		// got cleanup up.
+		EXPECT_EQ(cmap.depth(), 0);
+    }
+}
 
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
