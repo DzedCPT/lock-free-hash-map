@@ -14,6 +14,14 @@ std::random_device dev;
 std::mt19937 rng(0);
 std::uniform_int_distribution<std::mt19937::result_type> dist(1, 100000);
 
+// To test that this code is thread safe we do the test multiple times
+// and with many concurrent threads hoping to ensure all possible
+// orderings are covered. So you can increase these values to be more
+// confident
+const size_t THREAD_INTENSITY =
+    25;                          // How many threads to run at the same time.
+const size_t REPEATS = 1000; // How many times to repeat each test.
+
 std::unordered_map<int, int> createRandomMap(const int n) {
     std::unordered_map<int, int> map;
     while (true) {
@@ -36,7 +44,6 @@ void insertMapIntoConcurrentMap(const std::unordered_map<int, int> &map,
         cmap.insert({pair.first, pair.second});
     }
 }
-
 
 void deleteMapFromConcurrentMap(const std::unordered_map<int, int> &map,
                                 ConcurrentUnorderedMap<int, int> &cmap) {
@@ -70,7 +77,6 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_VectorKey) {
     map.insert({{true, false}, 10.0});
     EXPECT_EQ(map.at({true, false}), 10.0);
 }
-
 
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Size) {
     ConcurrentUnorderedMap<int, int> cmap;
@@ -132,11 +138,11 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_Erase) {
     ConcurrentUnorderedMap<int, int> cmap;
     const auto n = cmap.bucket_count() + (cmap.bucket_count() / 2);
     auto map = createRandomMap(n);
-	map[10] = 10;
+    map[10] = 10;
     insertMapIntoConcurrentMap(map, cmap);
     deleteMapFromConcurrentMap(map, cmap);
 
-	map.clear();
+    map.clear();
 
     EXPECT_EQ(cmap.size(), 0);
     EXPECT_EQ(cmap, map);
@@ -200,8 +206,8 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
     ConcurrentUnorderedMap<int, int> cmap;
     const auto map = createRandomMap(4);
 
-    for (int i = 0; i < 100; i++) {
-        threadedMapInsert(cmap, map, 10);
+    for (int i = 0; i < REPEATS; i++) {
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
         EXPECT_EQ(4, cmap.size());
     }
 }
@@ -212,14 +218,14 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
     ConcurrentUnorderedMap<int, int> cmap;
     const auto map = createRandomMap(4);
 
-    for (int i = 0; i < 1000; i++) {
-        threadedMapInsert(cmap, map, 10);
+    for (int i = 0; i < REPEATS; i++) {
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
         EXPECT_EQ(cmap, map);
     }
 }
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap;
         const auto startingBucketCount = cmap.bucket_count();
         // Make sure we pick a factor here higher than the load factor!
@@ -227,7 +233,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Resize) {
 
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
-        threadedMapInsert(cmap, map, 100);
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
 
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
         EXPECT_EQ(cmap, map);
@@ -241,13 +247,13 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
     // We don't want to test resize here so make the number of elements here
     // less than the starting capacity of the cmap.
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap;
         const auto startingBucketCount = cmap.bucket_count();
         // The +1 will trigger a second resize with load factor threshold 0.5.
         const auto map = createRandomMap(startingBucketCount + 1);
 
-        threadedMapInsert(cmap, map, 100);
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
         EXPECT_EQ(cmap, map);
 
@@ -262,7 +268,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_MaxLoadRatio) {
     // less than the starting capacity of the cmap.
 
     // TODO: Under high repeition this test will fail.
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap(5, 1.0);
 
         const auto startingBucketCount = cmap.bucket_count() * 0.75;
@@ -273,7 +279,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_MaxLoadRatio) {
             map[i] = i;
         }
 
-        threadedMapInsert(cmap, map, 25);
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
         EXPECT_EQ(cmap.bucket_count(), 32);
@@ -292,7 +298,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
     // some logic to break out of the insert and either allocate a new kvs
     // yourself or use one another thread has allocated.
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < REPEATS; i++) {
         // Set the resize ratio to 1.0 so that at the point of the resize the
         // current is full, allowing us to check that a thread will detect
         // this, break out of it reprobe loop and use the new larger kvs.
@@ -301,7 +307,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
         const auto startingBucketCount = cmap.bucket_count();
         const auto map = createRandomMap(startingBucketCount + 10);
 
-        threadedMapInsert(cmap, map, 100);
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 2);
         EXPECT_EQ(cmap, map);
         // assert that the depth is zero, ie that the originally smaller kvs
@@ -312,11 +318,11 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread,
      Test_UniqueValueInsertedByEachThread_WithResize) {
-	// In this test we get each thread to insert unique values. 
-	// This was causing a data race where the copy was colliding
-	// with inserts into the old table.
-	
-    for (int i = 0; i < 1000; i++) {
+    // In this test we get each thread to insert unique values.
+    // This was causing a data race where the copy was colliding
+    // with inserts into the old table.
+
+    for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap(7, 0.3);
         auto m = createRandomMap(16 * 16);
         auto map = threadedMapInsertMapPerThread(cmap, m, 16);
@@ -332,7 +338,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
     // after the new values are inserted and we need to detect that and drop the
     // copy.
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < REPEATS; i++) {
         // cmap will have 2**9=512 slots to start:
         ConcurrentUnorderedMap<int, int> cmap(9, 0.5);
         // Insert 256 values which is exactly 1 short of triggering a resize.
@@ -369,28 +375,27 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
 }
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Erase) {
-	for (int i = 0; i < 1; i++) {
-   	   // We don't want to test resize here so make the number of elements here (4)
-    	// less than the starting capacity of the cmap.
-    	ConcurrentUnorderedMap<int, int> cmap;
-    	auto map = createRandomMap(4);
-		map[10] = 10;
+    for (int i = 0; i < REPEATS; i++) {
+        // We don't want to test resize here so make the number of elements here
+        // (4)
+        // less than the starting capacity of the cmap.
+        ConcurrentUnorderedMap<int, int> cmap;
+        auto map = createRandomMap(4);
+        map[10] = 10;
 
-        threadedMapInsert(cmap, map, 10);
-    	deleteMapFromConcurrentMap(map, cmap);
-		map.clear();
+        threadedMapInsert(cmap, map, THREAD_INTENSITY);
+        deleteMapFromConcurrentMap(map, cmap);
+        map.clear();
 
         EXPECT_EQ(cmap, map);
-    	EXPECT_EQ(cmap.size(), 0);
-    	EXPECT_THROW(cmap.at(10), std::out_of_range);
-
-	}
+        EXPECT_EQ(cmap.size(), 0);
+        EXPECT_THROW(cmap.at(10), std::out_of_range);
+    }
 }
 
-TEST(TestConcurrentUnorderedHashMap_MultiThread,
-     Test_EraseDuringResize) {
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_EraseDuringResize) {
 
-    for (int i = 0; i < 1; i++) {
+    for (int i = 0; i < REPEATS; i++) {
         ConcurrentUnorderedMap<int, int> cmap(9, 0.5);
         auto map = createRandomMap(256);
         threadedMapInsertMapPerThread(cmap, map, 16);
@@ -400,17 +405,17 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
         // Pick 0 because we can be sure that's a new key!
         // The insert below should trigger a resize.
         cmap.insert({0, 0});
-		map[0] = 0;
+        map[0] = 0;
         // Assert resize has began.
         EXPECT_EQ(cmap.depth(), 1);
 
-    	deleteMapFromConcurrentMap(map, cmap);
-		map.clear();
+        deleteMapFromConcurrentMap(map, cmap);
+        map.clear();
 
         EXPECT_EQ(cmap, map);
-    	EXPECT_EQ(cmap.size(), 0);
+        EXPECT_EQ(cmap.size(), 0);
         EXPECT_EQ(cmap.depth(), 1);
-    	EXPECT_THROW(cmap.at(0), std::out_of_range);
+        EXPECT_THROW(cmap.at(0), std::out_of_range);
     }
 }
 
