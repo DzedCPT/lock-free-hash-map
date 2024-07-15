@@ -1,6 +1,7 @@
 #ifndef MAP_H
 #define MAP_H
 
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -18,14 +19,20 @@ class KeyValuePair {
 
 inline int hash(const int key, const int capacity) { return key % capacity; }
 
-class Map {
+class ConcurrentUnorderedMap {
   public:
-    Map(int capacity = 64)
+    ConcurrentUnorderedMap(int capacity = 64)
         : mCapacity(capacity), mData(std::vector<KeyValuePair>(capacity)) {}
 
     uint64_t size() const { return mSize.load(); }
 
-    int insert(const int putKey, const int putValue) {
+    bool empty() const { return mSize.load() == 0; }
+
+    // According to the spec this should return: pair<iterator,bool> insert (
+    // const value_type& val );
+    int insert(const std::pair<int, int> &val) {
+        int putKey = val.first;
+        int putValue = val.second;
         int slot = hash(putKey, mCapacity);
         auto *pair = &mData[slot];
         while (true) {
@@ -44,8 +51,7 @@ class Map {
             }
 
             // Maybe the key is already inserted?
-            if (k == putKey)
-            {
+            if (k == putKey) {
                 break;
             }
 
@@ -68,17 +74,35 @@ class Map {
             }
         }
     }
-    int get(const int key) const {
-        // FIXME: What if the key doesn't exist?
+    int at(const int key) const {
         int slot = hash(key, mCapacity);
         while (true) {
             const auto &d = mData[slot];
-            if (d.mKey.load() == key) {
+            const auto currentKeyValue = d.mKey.load();
+            if (currentKeyValue == key) {
                 return d.mValue.load();
+            }
+            if (currentKeyValue == mSentryValue) {
+                throw std::out_of_range("Unables to find key");
             }
             slot = (slot + 1) % mCapacity;
         }
         return mData[slot].mValue.load();
+    }
+
+    // This should be templated to handle different types of maps.
+    bool operator==(const std::unordered_map<int, int> &other) const {
+        for (const auto &pair : other) {
+            try {
+                if (this->at(pair.first) != pair.second) {
+                    return false;
+                }
+
+            } catch (std::out_of_range) {
+                return false;
+            }
+        }
+        return true;
     }
 
   private:
@@ -87,4 +111,5 @@ class Map {
     int mCapacity;
     int mSentryValue = -1;
 };
+
 #endif // MAP_H
