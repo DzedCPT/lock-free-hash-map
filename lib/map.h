@@ -1,6 +1,7 @@
 #ifndef MAP_H
 #define MAP_H
 
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
@@ -80,11 +81,6 @@ class Slot {
     std::atomic<const DataWrapper *> mValue{};
 };
 
-// TODO: Add a real hash function.
-inline int hash(const int key, const int capacity) {
-    return key >> (capacity - 1);
-}
-
 class KeyValueStore {
   public:
     KeyValueStore(int size, float maxLoadRatio)
@@ -130,7 +126,7 @@ class KeyValueStore {
 
     int atKvs(const int key) {
         // mNumReaders++;
-        int slot = hash(key, mKvs.size());
+        int slot = hash(key);
         while (true) {
             const auto &d = mKvs[slot];
             const auto currentKeyValue = d.key();
@@ -185,6 +181,9 @@ class KeyValueStore {
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
+    // TODO: Add a real hash function.
+    int hash(const int key) const { return mHash(key) >> (mKvs.size() - 1); }
+
     void newKvs() {
 
         // You could check here if anybody else has already started a resize and
@@ -284,7 +283,7 @@ class KeyValueStore {
 
     Slot *insertKey(int key) {
         const DataWrapper *desiredKey = new DataWrapper(key);
-        int idx = hash(desiredKey->data(), mKvs.size());
+        int idx = hash(desiredKey->data());
         auto *slot = &mKvs[idx];
 
         while (true) {
@@ -376,7 +375,7 @@ class KeyValueStore {
     }
 
     bool eraseKvs(const int key) {
-        int slotIdx = hash(key, mKvs.size());
+        int slotIdx = hash(key);
 
         while (true) {
             const auto slotKey = mKvs[slotIdx].key();
@@ -459,6 +458,7 @@ class KeyValueStore {
     // ZZZ: Why does this need to be volatile.
     volatile bool mCopied = false;
     const float mMaxLoadRatio;
+    std::hash<int> mHash;
 };
 
 class ConcurrentUnorderedMap {
