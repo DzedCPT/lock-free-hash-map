@@ -4,22 +4,29 @@
 #include <iostream>
 #include <limits>
 #include <list>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
-
+enum NodeState {
+    EMPTY,
+    ALIVE,
+    COPIED,
+};
 class Node {
   public:
-    Node() : mValue(0), mEmpty(true) {}
-    Node(int value) : mValue(value), mEmpty(false) {}
+    Node() : mValue(0), mState(EMPTY) {}
+    Node(int value) : mValue(value), mState(ALIVE) {}
+    Node(NodeState copied) : mState(copied) {}
 
-    int mValue;
-    // TODO: This should probably be a state.
-    bool empty() const { return mEmpty; }
+    int mValue = 0;
+    bool empty() const { return mState == EMPTY; }
+    bool copied() const { return mState == COPIED; }
+    bool alive() const { return mState == ALIVE; }
 
   private:
-    bool mEmpty = true;
+    NodeState mState = EMPTY;
 };
 
 class KeyValuePair {
@@ -87,6 +94,82 @@ class Impl {
         }
     }
 
+    std::optional<std::size_t> getCopyWork() {
+        auto startIdx = mCopyIdx.load();
+        if (startIdx >= mKvs.size()) {
+            // Copy is already done.
+            mCopied = true;
+            return std::nullopt;
+        }
+
+        std::size_t endIdx = startIdx + COPY_CHUNK_SIZE;
+        if (!mCopyIdx.compare_exchange_strong(startIdx, endIdx)) {
+            // Another thread claimed this work before us.
+            return std::nullopt;
+        }
+        return startIdx;
+    }
+
+    void doCopy(std::size_t slot) {
+
+        Node *copiedMarker = new Node(COPIED);
+        // TODO: This loop should never try twice, so you could assert that.
+        while (true) {
+            auto pair = &mKvs[slot];
+            auto key = pair->mKey.load();
+
+            assert(!key->copied());
+            // first case the slot has no key.
+            if (key->empty()) {
+                auto succes =
+                    pair->mKey.compare_exchange_strong(key, copiedMarker);
+                if (succes) {
+                    return;
+                }
+                continue;
+            }
+
+            // Second case the slot has a key.
+            // We need to copy the value to the new table.
+            break;
+        }
+
+        while (true) {
+            auto pair = &mKvs[slot];
+            auto key = pair->mKey.load();
+            assert(!key->empty());
+            assert(!key->copied());
+
+            auto value = pair->mValue.load();
+            assert(!value->copied());
+            assert(!value->empty());
+            assert(nextKvs != nullptr);
+
+            auto success =
+                pair->mValue.compare_exchange_strong(value, copiedMarker);
+            if (success) {
+                // TODO: This will currently overwrite the value in the new
+                // table if a new value has been written after the copy started.
+                nextKvs.load()->insert({key->mValue, value->mValue});
+                mSize--;
+                return;
+            }
+        }
+    }
+
+    void doCopyWork() {
+        const auto workStartIdxOpt = getCopyWork();
+        if (!workStartIdxOpt.has_value()) {
+            // No work to do.
+            return;
+        }
+
+        auto workStartIdx = workStartIdxOpt.value();
+        for (auto i = workStartIdx; i < workStartIdx + COPY_CHUNK_SIZE; i++) {
+            doCopy(i);
+        }
+    }
+
     // According to the spec this should return: pair<iterator,bool> insert (
     // const value_type& val );
     int insert(const std::pair<int, int> &val) {
@@ -94,6 +177,7 @@ class Impl {
             allocateNewKvs();
         }
         if (nextKvs != nullptr) {
+            doCopyWork();
             return nextKvs.load()->insert(val);
         }
         const Node *putKey = new Node(val.first);
@@ -161,14 +245,21 @@ class Impl {
         while (true) {
             const auto &d = mKvs[slot];
             const auto currentKeyValue = d.mKey.load();
-            if (currentKeyValue->mValue == key) {
+            if (currentKeyValue->mValue == key && currentKeyValue->alive()) {
+                auto value = d.mValue.load();
+                if (value->copied()) {
+                    if (nextKvs == nullptr)
+                        throw std::out_of_range("Unable to find key");
+                    else
+                        return nextKvs.load()->at(key);
+                }
                 // TODO: I think we need to check here if what we load from
                 // value is EMPTY, because it could be if another thread inserts
                 // a key before this thread looksup the key but the value hasn't
                 // been written into place by the other thread.
-                return d.mValue.load()->mValue;
+                return value->mValue;
             }
-            if (currentKeyValue->empty()) {
+            if (currentKeyValue->empty() || currentKeyValue->copied()) {
                 if (nextKvs == nullptr)
                     throw std::out_of_range("Unable to find key");
                 else
@@ -182,6 +273,8 @@ class Impl {
     Impl *getNextKvs() const { return nextKvs.load(); }
 
   private:
+    inline static const std::size_t COPY_CHUNK_SIZE = 8;
+
     float mMaxLoad = 0.5;
     size_type clip(const size_type slot) const {
         // TODO: Add comment here on how this works?
@@ -191,14 +284,13 @@ class Impl {
     std::atomic<uint64_t> mSize{};
     std::vector<KeyValuePair> mKvs;
     std::atomic<Impl *> nextKvs = nullptr;
+    std::atomic<std::size_t> mCopyIdx;
+    bool mCopied = false;
 };
 
 class ConcurrentUnorderedMap {
   public:
-    ConcurrentUnorderedMap(int exp = 5) {
-        // ZZZ: This can be in init list
-        head = new Impl(std::pow(2, exp));
-    }
+    ConcurrentUnorderedMap(int exp = 5) : head(new Impl(std::pow(2, exp))) {}
 
     std::atomic<Impl *> head;
 
