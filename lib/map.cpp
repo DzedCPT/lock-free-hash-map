@@ -176,7 +176,7 @@ class KeyValueStore {
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
    private:
-    size_t hash(K const key) const { return mHash(key) >> (mKvs.size() - 1); }
+    size_t hash(K const key) const { return clip(mHash(key)); }
 
     void newKvs() {
         // You could check here if anybody else has already started a resize and
@@ -440,8 +440,11 @@ class KeyValueStore {
     bool resizeRequired() const {
         return size() >= mKvs.size() * mMaxLoadRatio;
     }
+
     size_t clip(size_t const slot) const {
-        // TODO: Add comment here on how this works?
+        // mKvs.size() has to be a power of 2.
+        // So subtracing 1 gives us a sequence of 1s and then &
+        // gives us a size_t between 0 and mKvs.size()
         return slot & (mKvs.size() - 1);
     }
 
