@@ -10,8 +10,7 @@
 #include <vector>
 
 std::random_device dev;
-// Let's not set this to make tests reproducible-ish.
-// std::mt19937 rng(dev());
+// Let's seed this to make tests reproducible-ish.
 std::mt19937 rng(0);
 std::uniform_int_distribution<std::mt19937::result_type> dist(1, 100000);
 
@@ -195,18 +194,17 @@ threadedMapInsertMapPerThread(ConcurrentUnorderedMap<int, int> &cmap,
     return m;
 }
 
-// TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
-//     // We don't want to test resize here so make the number of elements here
-//     (4)
-//     // less than the starting capacity of the cmap.
-//     ConcurrentUnorderedMap<int, int> cmap;
-//     const auto map = createRandomMap(4);
-//
-//     for (int i = 0; i < 100; i++) {
-//         threadedMapInsert(cmap, map, 10);
-//         EXPECT_EQ(4, cmap.size());
-//     }
-// }
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
+    // We don't want to test resize here so make the number of elements here
+    // less than the starting capacity of the cmap.
+    ConcurrentUnorderedMap<int, int> cmap;
+    const auto map = createRandomMap(4);
+
+    for (int i = 0; i < 100; i++) {
+        threadedMapInsert(cmap, map, 10);
+        EXPECT_EQ(4, cmap.size());
+    }
+}
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
     // We don't want to test resize here so make the number of elements here (4)
@@ -415,7 +413,6 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
     	EXPECT_THROW(cmap.at(0), std::out_of_range);
     }
 }
-
 
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
