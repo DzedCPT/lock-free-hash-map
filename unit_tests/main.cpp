@@ -10,7 +10,7 @@
 #include <vector>
 
 std::random_device dev;
-// Let's not set this to make test reproducible-ish.
+// Let's not set this to make tests reproducible-ish.
 // std::mt19937 rng(dev());
 std::mt19937 rng(0);
 std::uniform_int_distribution<std::mt19937::result_type> dist(1, 100000);
@@ -172,7 +172,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_InsertAndAt1) {
     ConcurrentUnorderedMap cmap;
     const auto map = createRandomMap(4);
 
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 1000; i++) {
         threadedMapInsert(cmap, map, 10);
         EXPECT_EQ(cmap, map);
     }
@@ -221,35 +221,41 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_MaxLoadRatio) {
     // We don't want to test resize here so make the number of elements here
     // less than the starting capacity of the cmap.
 
-    for (int i = 0; i < 1000; i++) {
+    // TODO: Under high repeition this test will fail.
+    for (int i = 0; i < 10000; i++) {
         ConcurrentUnorderedMap cmap(5, 1.0);
 
         const auto startingBucketCount = cmap.bucket_count() * 0.75;
         // Make sure we pick a factor here higher than the load factor!
-        const auto map = createRandomMap(startingBucketCount);
+        // const auto map = createRandomMap(startingBucketCount);
+        std::unordered_map<int, int> map{};
+        for (int i = 0; i < startingBucketCount; i++) {
+            map[i] = i;
+        }
 
-        threadedMapInsert(cmap, map, 2);
+        threadedMapInsert(cmap, map, 25);
         // Should only resize once, so bucket count should end up beng twice
         // the starting bucket size.
         EXPECT_EQ(cmap.bucket_count(), 32);
+        EXPECT_EQ(cmap.size(), startingBucketCount);
         EXPECT_EQ(cmap, map);
     }
 }
 
 TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
-	// This tests the following situation:
-	// - Inserter checks if kvs is full and sees that it *isn't*.
-	// - While trying to reprobe for an open spot the kvs fills up.
-	// In the setting above the inserter would get stuck reprobing the 
-	// full kvs indefinitely.
-	// This test genereates the situation above and makes suerthat there's
-	// some logic to break out of the insert and either allocate a new kvs
-	// yourself or use one another thread has allocated.
+    // This tests the following situation:
+    // - Inserter checks if kvs is full and sees that it *isn't*.
+    // - While trying to reprobe for an open spot the kvs fills up.
+    // In the setting above the inserter would get stuck reprobing the
+    // full kvs indefinitely.
+    // This test genereates the situation above and makes sure that there's
+    // some logic to break out of the insert and either allocate a new kvs
+    // yourself or use one another thread has allocated.
 
     for (int i = 0; i < 1000; i++) {
-		// Set the resize ratio to 1.0 so that at the point of the resize the
-		// current is full, allowing us to check that a thread will detect
-		// this, break out of it reprobe loop and use the new larger kvs.
+        // Set the resize ratio to 1.0 so that at the point of the resize the
+        // current is full, allowing us to check that a thread will detect
+        // this, break out of it reprobe loop and use the new larger kvs.
         ConcurrentUnorderedMap cmap(5, 1.0);
 
         const auto startingBucketCount = cmap.bucket_count();
@@ -277,6 +283,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
         EXPECT_EQ(cmap, map);
     }
 }
+
 TEST(TestConcurrentUnorderedHashMap_MultiThread,
      Test_CopyDoesnNotOverrideNewValues) {
     // In this test we are testing the case that every value is replaced after a
@@ -320,6 +327,7 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
         EXPECT_EQ(cmap.depth(), 0);
     }
 }
+
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
