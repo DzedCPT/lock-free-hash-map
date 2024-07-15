@@ -9,11 +9,11 @@ namespace cmap {
 typedef std::size_t size_t;
 
 enum DataState {
-    EMPTY,
-    ALIVE,
-    TOMB_STONE,
-    COPIED_DEAD,
-    COPIED_ALIVE,
+    EMPTY,         // The data has not been set
+    ALIVE,         // The data is to be used.
+    TOMB_STONE,    // The data has been removed.
+    COPIED_DEAD,   // The data has been copied from the current location
+    COPIED_ALIVE,  // The copy has been copied into the current location.
 };
 
 template <typename T>
