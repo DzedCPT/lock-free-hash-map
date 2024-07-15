@@ -8,9 +8,6 @@
 #include <unordered_map>
 #include <vector>
 
-// TODO: Add some comments here on what these are!
-inline const static int *EMPTY = new int(42);
-inline const static int *TOMBSTONE = new int(42);
 
 class Node {
   public:
