@@ -15,13 +15,18 @@ HunterGate(
 
 project(ConcurrentHashMap)
 
+include(CTest)
+
+
 # Google Test Package:
 hunter_add_package(GTest)
 find_package(GTest CONFIG REQUIRED)
 
 add_subdirectory(lib)
 
-add_executable(test unit_tests/main.cpp)
-target_link_libraries(test PRIVATE GTest::main)
-target_include_directories(test PUBLIC "${PROJECT_SOURCE_DIR}/lib")
-target_link_libraries(test PUBLIC Map)
+add_executable(unit_test unit_tests/main.cpp)
+target_link_libraries(unit_test PRIVATE GTest::main)
+target_include_directories(unit_test PUBLIC "${PROJECT_SOURCE_DIR}/lib")
+target_link_libraries(unit_test PUBLIC Map)
+
+add_test(NAME AllTest COMMAND unit_test)
