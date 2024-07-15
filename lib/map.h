@@ -9,6 +9,9 @@
 #include <unordered_map>
 #include <vector>
 
+const float MAX_LOAD_FACTOR = 0.5;
+const std::size_t COPY_CHUNK_SIZE = 8;
+
 enum DataState {
     EMPTY,
     ALIVE,
@@ -59,21 +62,19 @@ class Slot {
     std::atomic<const DataWrapper *> mValue{};
 };
 
+// TODO: Add a real hash function.
 inline int hash(const int key, const int capacity) {
-    // TODO: Add a real hash function.
     return key >> (capacity - 1);
 }
 
-class Impl {
+class KeyValueStore {
   public:
-    typedef std::size_t size_type;
-
-    Impl(int size) : mKvs(std::vector<Slot>(size)) {}
+    KeyValueStore(int size) : mKvs(std::vector<Slot>(size)) {}
 
     uint64_t size() const {
         std::size_t s = mSize;
-        if (nextKvs != nullptr) {
-            s += nextKvs.load()->size();
+        if (mNextKvs != nullptr) {
+            s += mNextKvs.load()->size();
         }
         return s;
     }
@@ -81,30 +82,30 @@ class Impl {
     bool empty() const {
         auto empty = mSize == 0;
         auto next_empty = true;
-        if (nextKvs != nullptr) {
-            next_empty = nextKvs.load()->empty();
+        if (mNextKvs != nullptr) {
+            next_empty = mNextKvs.load()->empty();
         }
         return empty && next_empty;
     }
 
     std::size_t bucket_count() const {
-        if (nextKvs != nullptr) {
-            return nextKvs.load()->bucket_count();
+        if (mNextKvs != nullptr) {
+            return mNextKvs.load()->bucket_count();
         }
         return mKvs.size();
     }
 
-    bool resizeRequired() const { return size() > mKvs.size() * mMaxLoad; }
+    bool resizeRequired() const { return size() > mKvs.size() * MAX_LOAD_FACTOR; }
 
     void allocateNewKvs() {
 
         // You could check here if anybody else has already started a resize and
         // if so not allocate memory.
 
-        auto *ptr = new Impl(mKvs.size() * 2);
-        Impl *x = nullptr;
+        auto *ptr = new KeyValueStore(mKvs.size() * 2);
+        KeyValueStore *x = nullptr;
         // Only thread should win the race and put the newKvs into place.
-        auto s = nextKvs.compare_exchange_strong(x, ptr);
+        auto s = mNextKvs.compare_exchange_strong(x, ptr);
         if (!s) {
             // Allocated for nothing, some other thread beat us,
             // so cleanup our mess.
@@ -158,13 +159,13 @@ class Impl {
             auto value = pair->value();
             assert(!value->copied());
             assert(!value->empty());
-            assert(nextKvs != nullptr);
+            assert(mNextKvs != nullptr);
 
             auto success = pair->casValue(value, copiedMarker);
             if (success) {
                 // TODO: This will currently overwrite the value in the new
                 // table if a new value has been written after the copy started.
-                nextKvs.load()->insert({key->data(), value->data()});
+                mNextKvs.load()->insert({key->data(), value->data()});
                 mSize--;
                 return;
             }
@@ -195,9 +196,9 @@ class Impl {
         if (resizeRequired()) {
             allocateNewKvs();
         }
-        if (nextKvs != nullptr) {
+        if (mNextKvs != nullptr) {
             doCopyWork();
-            return nextKvs.load()->insert(val);
+            return mNextKvs.load()->insert(val);
         }
         const DataWrapper *putKey = new DataWrapper(val.first);
         const DataWrapper *putValue = new DataWrapper(val.second);
@@ -261,8 +262,8 @@ class Impl {
         if (mCopied) {
             // Not possible to be copied and not have a nextKvs, because
             // otherwise where did we copy everything into.
-            assert(nextKvs != nullptr);
-            return nextKvs.load()->at(key);
+            assert(mNextKvs != nullptr);
+            return mNextKvs.load()->at(key);
         }
 
         mNumReaders++;
@@ -273,11 +274,11 @@ class Impl {
             if (currentKeyValue->data() == key && currentKeyValue->alive()) {
                 auto value = d.value();
                 if (value->copied()) {
-                    if (nextKvs == nullptr) {
+                    if (mNextKvs == nullptr) {
                         mNumReaders--;
                         throw std::out_of_range("Unable to find key");
                     } else {
-                        auto result = nextKvs.load()->at(key);
+                        auto result = mNextKvs.load()->at(key);
                         mNumReaders--;
                         return result;
                     }
@@ -289,12 +290,12 @@ class Impl {
                 return value->data();
             }
             if (currentKeyValue->empty() || currentKeyValue->copied()) {
-                if (nextKvs == nullptr) {
+                if (mNextKvs == nullptr) {
                     mNumReaders--;
                     throw std::out_of_range("Unable to find key");
                 } else {
 
-                    auto result = nextKvs.load()->at(key);
+                    auto result = mNextKvs.load()->at(key);
                     mNumReaders--;
                     return result;
                 }
@@ -304,24 +305,23 @@ class Impl {
         assert(false);
     }
 
-    Impl *getNextKvs() const { return nextKvs.load(); }
+    KeyValueStore *getNextKvs() const { return mNextKvs.load(); }
 
     bool copied() const { return mCopied; }
 
     bool hasActiveReaders() const { return mNumReaders != 0; }
 
   private:
-    inline static const std::size_t COPY_CHUNK_SIZE = 8;
-
-    float mMaxLoad = 0.5;
-    size_type clip(const size_type slot) const {
+    std::size_t clip(const size_t slot) const {
         // TODO: Add comment here on how this works?
         return slot & (mKvs.size() - 1);
     }
 
+
+
     std::atomic<uint64_t> mSize{};
     std::vector<Slot> mKvs;
-    std::atomic<Impl *> nextKvs = nullptr;
+    std::atomic<KeyValueStore *> mNextKvs = nullptr;
     std::atomic<std::size_t> mCopyIdx;
     std::atomic<std::size_t> mNumReaders = 0;
     // ZZZ: Why does this need to be volatile.
@@ -330,9 +330,9 @@ class Impl {
 
 class ConcurrentUnorderedMap {
   public:
-    ConcurrentUnorderedMap(int exp = 5) : head(new Impl(std::pow(2, exp))) {}
+    ConcurrentUnorderedMap(int exp = 5) : head(new KeyValueStore(std::pow(2, exp))) {}
 
-    std::atomic<Impl *> head;
+    std::atomic<KeyValueStore *> head;
 
     int insert(const std::pair<int, int> &val) {
         // Surgically replace the head.
@@ -365,7 +365,7 @@ class ConcurrentUnorderedMap {
 
     std::size_t depth() const {
         std::size_t depth = 0;
-        Impl *x = head;
+        KeyValueStore *x = head;
         while (true) {
             if (x->getNextKvs() == nullptr) {
                 break;
