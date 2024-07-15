@@ -71,6 +71,16 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt2) {
     EXPECT_NE(cmap, map);
 }
 
+TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt3) {
+    ConcurrentUnorderedMap cmap;
+	// Fill create a map with excactly the number of elements that the underlying cmap can hold
+	// to check it handles collisions and wrap around.
+    const auto map = createRandomMap(cmap.bucket_count());
+    insertMapIntoConcurrentMap(map, cmap);
+    EXPECT_EQ(cmap, map);
+}
+
+
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
