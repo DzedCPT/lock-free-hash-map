@@ -36,7 +36,7 @@ class Map {
                 // https://stackoverflow.com/questions/4944771/stdatomic-compare-exchange-weak-vs-compare-exchange-strong
 
                 if (auto success =
-                        k.compare_exchange_strong(mSentryValue, k.load())) {
+                        k.compare_exchange_strong(mSentryValue, putKey)) {
                     ++mSize;
                     break;
                 }
