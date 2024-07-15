@@ -450,7 +450,7 @@ template <typename K, typename V> class KeyValueStore {
         return slot & (mKvs.size() - 1);
     }
 
-    std::atomic<uint64_t> mSize{};
+    std::atomic<size_t> mSize{};
     std::vector<Slot<K, V>> mKvs;
     std::atomic<KeyValueStore *> mNextKvs = nullptr;
     std::atomic<size_t> mCopyIdx;
