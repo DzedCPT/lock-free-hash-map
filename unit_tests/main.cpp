@@ -343,9 +343,9 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
         // cmap will have 2**9=512 slots to start:
         ConcurrentUnorderedMap<int, int> cmap(9, 0.5);
         // Insert 256 values which is exactly 1 short of triggering a resize.
-        auto m = createRandomMap(256);
+        auto map = createRandomMap(256);
         // Insert the values across 16 threads:
-        threadedMapInsertMapPerThread(cmap, m, 16);
+        threadedMapInsertMapPerThread(cmap, map, 16);
         // Assert the that indeed no resize has been trigger!
         EXPECT_EQ(cmap.depth(), 0);
 
@@ -358,18 +358,18 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread,
         // Give each pair a new negative value, so we can check at the end if
         // the value in cmap at the end is the new (expected) or old value.
         int idx = 0;
-        for (auto& pair : m) {
-            m[pair.first] = idx;
+        for (auto& pair : map) {
+            map[pair.first] = idx;
             idx--;
         }
-        threadedMapInsertMapPerThread(cmap, m, 16);
+        threadedMapInsertMapPerThread(cmap, map, 16);
 
         // Need to insert this into map because we inserted it into cmap to
         // trigger the resize.
-        m[0] = 0;
+        map[0] = 0;
 
         // Check that no old values from before the copy still exist in the map.
-        EXPECT_EQ(cmap, m);
+        EXPECT_EQ(cmap, map);
         // Check that the copy is complete.
         EXPECT_EQ(cmap.depth(), 0);
     }
