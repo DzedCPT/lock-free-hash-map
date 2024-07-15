@@ -455,8 +455,9 @@ template <typename K, typename V> class KeyValueStore {
     std::atomic<KeyValueStore *> mNextKvs = nullptr;
     std::atomic<size_t> mCopyIdx;
     std::atomic<size_t> mNumReaders = 0;
-    // ZZZ: Why does this need to be volatile.
-    volatile bool mCopied = false;
+	// Copied doesn't need to be atomic because it's only every going to change from false to true.
+	// and it doesn't matter how many times that happends
+    bool mCopied = false;
     const float mMaxLoadRatio;
     std::hash<K> mHash;
 };
