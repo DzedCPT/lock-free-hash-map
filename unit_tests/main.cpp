@@ -363,6 +363,34 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Erase) {
 	}
 }
 
+TEST(TestConcurrentUnorderedHashMap_MultiThread,
+     Test_EraseDuringResize) {
+
+    for (int i = 0; i < 1; i++) {
+        ConcurrentUnorderedMap cmap(9, 0.5);
+        auto map = createRandomMap(256);
+        threadedMapInsertMapPerThread(cmap, map, 16);
+        // Assert the that indeed no resize has been trigger!
+        EXPECT_EQ(cmap.depth(), 0);
+
+        // Pick 0 because we can be sure that's a new key!
+        // The insert below should trigger a resize.
+        cmap.insert({0, 0});
+		map[0] = 0;
+        // Assert resize has began.
+        EXPECT_EQ(cmap.depth(), 1);
+
+    	deleteMapFromConcurrentMap(map, cmap);
+		map.clear();
+
+        EXPECT_EQ(cmap, map);
+    	EXPECT_EQ(cmap.size(), 0);
+        EXPECT_EQ(cmap.depth(), 1);
+    	EXPECT_THROW(cmap.at(0), std::out_of_range);
+    }
+}
+
+
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
