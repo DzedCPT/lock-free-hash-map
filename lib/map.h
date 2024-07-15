@@ -238,8 +238,13 @@ class KeyValueStore {
             // Some assertions for my sanity.
             assert(!slot->key()->empty());
             assert(!slot->key()->dead());
-            assert(!value->dead());
+            assert(value->state() != COPIED_DEAD);
             assert(mNextKvs != nullptr);
+
+            if (value->state() == TOMB_STONE) {
+                delete copiedMarker;
+                return;
+            }
 
             if (value->empty()) {
                 // We got here so the key wasn't empty, but the value is empty.
