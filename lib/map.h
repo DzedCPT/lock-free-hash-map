@@ -344,12 +344,7 @@ class ConcurrentUnorderedMap {
         auto nextKvs = headValue->getNextKvs();
         if (nextKvs != nullptr && headValue->copied() &&
             !headValue->hasActiveReaders()) {
-            // if (nextKvs != nullptr && headValue->copied() ) {
-            // if (nextKvs != nullptr && headValue->copied()) {
-            // The current head is dead, since it's been copied into the kvs.
-            // So we need to
-            auto success = head.compare_exchange_strong(headValue, nextKvs);
-            if (success) {
+            if (head.compare_exchange_strong(headValue, nextKvs)) {
                 // We won so it's out responsibility to clean up the old Kvs
                 // TODO NB: Will need to put this back, but currently it creates
                 // segfault sometimes. delete headValue;/* ; */
