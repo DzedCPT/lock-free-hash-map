@@ -20,7 +20,7 @@ V ConcurrentUnorderedMap<K, V>::insert(std::pair<K, V> const& val) {
     return mHeadKvs.load()->insert(val);
 }
 template <typename K, typename V>
-V ConcurrentUnorderedMap<K, V>::at(K const key) const {
+V ConcurrentUnorderedMap<K, V>::at(const K key) const {
     return mHeadKvs.load()->at(key);
 }
 template <typename K, typename V>
