@@ -73,7 +73,7 @@ TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt2) {
 
 TEST(TestConcurrentUnorderedHashMap_SingleThread, Test_InsertAndAt3) {
     ConcurrentUnorderedMap cmap;
-	// Fill create a map with excactly the number of elements that the underlying cmap can hold
+	// Fill a map with excactly the number of elements that the underlying cmap can hold
 	// to check it handles collisions and wrap around.
     const auto map = createRandomMap(cmap.bucket_count());
     insertMapIntoConcurrentMap(map, cmap);
