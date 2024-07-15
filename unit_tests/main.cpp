@@ -116,6 +116,42 @@ void threadedMapInsert(ConcurrentUnorderedMap &cmap,
         t.join();
     }
 }
+std::vector<std::unordered_map<int, int>>
+divideMap(const std::unordered_map<int, int> &originalMap, int n) {
+    std::vector<std::unordered_map<int, int>> subMaps(n);
+    int totalSize = originalMap.size();
+    int subMapSize = totalSize / n;
+    int remainder = totalSize % n;
+
+    auto it = originalMap.begin();
+    for (int i = 0; i < n; ++i) {
+        int currentSubMapSize = subMapSize + (i < remainder ? 1 : 0);
+        for (int j = 0; j < currentSubMapSize; ++j) {
+            subMaps[i].insert(*it);
+            ++it;
+        }
+    }
+
+    return subMaps;
+}
+
+std::unordered_map<int, int>
+threadedMapInsertMapPerThread(ConcurrentUnorderedMap &cmap,
+                              std::unordered_map<int, int> &m,
+                              const int nThreads) {
+    std::vector<std::unordered_map<int, int>> maps = divideMap(m, nThreads);
+
+    std::vector<std::thread> threads(nThreads);
+    for (int i = 0; i < nThreads; i++) {
+        threads[i] = std::thread(insertMapIntoConcurrentMap, std::ref(maps[i]),
+                                 std::ref(cmap));
+    }
+
+    for (auto &t : threads) {
+        t.join();
+    }
+    return m;
+}
 
 // TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_Size) {
 //     // We don't want to test resize here so make the number of elements here
@@ -228,6 +264,54 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_StragglerInsertOnOldKvs) {
     }
 }
 
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_CopyDoesnNotOverrideNewValues) {
+	// In this test we are testing the case that every value is replaced after a resize starts.
+	// We need to assert that we don't override the new values with the old values
+	// during the copy, because some copies will happen after the new values are inserted and
+	// we need to detect that and drop the copy.
+TEST(TestConcurrentUnorderedHashMap_MultiThread,
+     Test_CopyDoesnNotOverrideNewValues) {
+    // In this test we are testing the case that every value is replaced after a
+    // resize starts. We need to assert that we don't override the new values
+    // with the old values during the copy, because some copies will happen
+    // after the new values are inserted and we need to detect that and drop the
+    // copy.
+
+    for (int i = 0; i < 1000; i++) {
+        // cmap will have 2**9=512 slots to start:
+        ConcurrentUnorderedMap cmap(9, 0.5);
+        // Insert 256 values which is exactly 1 short of triggering a resize.
+        auto m = createRandomMap(256);
+        // Insert the values across 16 threads:
+        threadedMapInsertMapPerThread(cmap, m, 16);
+        // Assert the that indeed no resize has been trigger!
+        EXPECT_EQ(cmap.depth(), 0);
+
+        // Pick 0 because we can be sure that's a new key!
+        // The insert below should trigger a resize.
+        cmap.insert({0, 0});
+        // Assert resize has began.
+        EXPECT_EQ(cmap.depth(), 1);
+
+        // Give each pair a new negative value, so we can check at the end if
+        // the value in cmap at the end is the new (expected) or old value.
+        int idx = 0;
+        for (auto &pair : m) {
+            m[pair.first] = idx;
+            idx--;
+        }
+        threadedMapInsertMapPerThread(cmap, m, 16);
+
+        // Need to insert this into map because we inserted it into cmap to
+        // trigger the resize.
+        m[0] = 0;
+
+        // Check that no old values from before the copy still exist in the map.
+        EXPECT_EQ(cmap, m);
+        // Check that the copy is complete.
+        EXPECT_EQ(cmap.depth(), 0);
+    }
+}
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
