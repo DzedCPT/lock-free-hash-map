@@ -32,7 +32,6 @@ class DataWrapper {
 
 class Slot {
   public:
-    // TODO: Slot needs a desctructor.
     Slot() {
         mKey.store(new DataWrapper(EMPTY));
         mValue.store(new DataWrapper(EMPTY));
@@ -44,11 +43,17 @@ class Slot {
     }
 
     bool casValue(const DataWrapper *expected, const DataWrapper *desired) {
-        return mValue.compare_exchange_strong(expected, desired);
+        const auto success = mValue.compare_exchange_strong(expected, desired);
+		if (success)
+			delete expected;
+		return success;
     }
 
     bool casKey(const DataWrapper *expected, const DataWrapper *desired) {
-        return mKey.compare_exchange_strong(expected, desired);
+        const bool success = mKey.compare_exchange_strong(expected, desired);
+		if (success)
+			delete expected;
+		return success;
     }
 
     const DataWrapper *key() const { return mKey.load(); }
@@ -218,6 +223,7 @@ class KeyValueStore {
         // key wasn't EMPTY so we need to forward the value into the new table.
         while (true) {
             auto value = slot->value();
+			auto data = value->data();
 
             // Some assertions for my sanity.
             assert(!slot->key()->empty());
@@ -229,7 +235,7 @@ class KeyValueStore {
             if (slot->casValue(value, copiedMarker)) {
                 // TODO: This will currently overwrite the value in the new
                 // table if a new value has been written after the copy started.
-                nextKvs()->insert({key->data(), value->data()});
+                nextKvs()->insert({key->data(), data});
                 mSize--;
                 return;
             }
@@ -306,10 +312,8 @@ class KeyValueStore {
                 return currentValue->data();
             }
 
-            if (auto success = slot->casValue(currentValue, desiredValue)) {
-                delete currentValue;
+            if (slot->casValue(currentValue, desiredValue))
                 return desiredValue->data();
-            }
         }
     }
 
