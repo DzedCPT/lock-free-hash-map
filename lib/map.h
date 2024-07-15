@@ -20,15 +20,16 @@ inline int hash(const int key, const int capacity) { return key % capacity; }
 
 class Map {
   public:
-    Map(int capacity=100) : mCapacity(capacity), mData(std::vector<KeyValuePair>(capacity)) {}
+    Map(int capacity = 100)
+        : mCapacity(capacity), mData(std::vector<KeyValuePair>(capacity)) {}
 
     uint64_t size() const { return mSize.load(); }
 
     int insert(const int putKey, const int putValue) {
         int slot = hash(putKey, mCapacity);
-        auto &pair = mData[slot];
+        auto *pair = &mData[slot];
         while (true) {
-            auto &k = pair.mKey;
+            auto &k = pair->mKey;
             // Check if we've found an open space:
             if (k == -1) {
                 // Not 100% sure what the difference is here between _strong and
@@ -41,10 +42,19 @@ class Map {
                     break;
                 }
             }
+
+            // Maybe the key is already inserted?
+            if (k == putKey)
+            {
+                break;
+            }
+
+            slot = (slot + 1) % mCapacity;
+            pair = &mData[slot];
         }
 
         while (true) {
-            auto &v = pair.mValue;
+            auto &v = pair->mValue;
 
             if (v == putValue) {
                 // Value already in place so we're done.
@@ -58,9 +68,16 @@ class Map {
             }
         }
     }
-
     int get(const int key) const {
-        const auto slot = hash(key, mCapacity);
+        // FIXME: What if the key doesn't exist?
+        int slot = hash(key, mCapacity);
+        while (true) {
+            const auto &d = mData[slot];
+            if (d.mKey.load() == key) {
+                return d.mValue.load();
+            }
+            slot = (slot + 1) % mCapacity;
+        }
         return mData[slot].mValue.load();
     }
 

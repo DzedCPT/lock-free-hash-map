@@ -5,17 +5,30 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 std::random_device dev;
-std::mt19937 rng(dev());
+// std::mt19937 rng(dev());
+std::mt19937 rng(0);
 std::uniform_int_distribution<std::mt19937::result_type>
-    dist6(1, 6); // distribution in range [1, 6]
+    dist6(1, 100000); // distribution in range [1, 6]
 
 std::vector<std::tuple<int, int>> randomVector(int n) {
     std::vector<std::tuple<int, int>> values;
-    for (int i = 0; i < n; i++) {
-        values.push_back({dist6(rng), dist6(rng)});
+    std::vector<int> intVector(10);
+    std::unordered_set<int> intSet;
+    while (true) {
+        auto key = dist6(rng);
+        // Make sure each key is unique.
+        if (intSet.find(key) != intSet.end()) {
+            continue;
+        }
+        values.push_back({key, dist6(rng)});
+        intSet.insert(key);
+        if (values.size() == n) {
+            break;
+        }
     }
     return values;
 }
@@ -72,7 +85,7 @@ TEST(TestConcurrentHashMap, TestMultiThreadInsert) {
     const auto values = seqVector(10);
 
     for (int i = 0; i < 100; i++) {
-        Map map{};
+        Map map(2000);
         multiThreadInsert(map, 100, 10, values);
 
         for (int i = 0; i < 10; i++) {
