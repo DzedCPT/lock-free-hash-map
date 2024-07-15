@@ -13,7 +13,8 @@ const size_t COPY_CHUNK_SIZE = 8;
 enum DataState {
     EMPTY,
     ALIVE,
-    COPIED,
+    COPIED_DEAD,
+    COPIED_ALIVE,
 };
 
 class DataWrapper {
@@ -21,8 +22,11 @@ class DataWrapper {
     DataWrapper(int value) : mData(value), mState(ALIVE) {}
     DataWrapper(DataState state) : mData(0), mState(state) {}
 
-    bool empty() const { return !(mState == ALIVE || mState == COPIED) ; }
-    bool copied() const { return mState == COPIED; }
+    bool empty() const {
+        return !(mState == ALIVE || mState == COPIED_DEAD ||
+                 mState == COPIED_ALIVE);
+    }
+    bool copied() const { return mState == COPIED_DEAD; }
     bool alive() const { return mState == ALIVE; }
     int data() const { return mData; }
 
@@ -207,7 +211,7 @@ class KeyValueStore {
     }
 
     void copySlot(size_t idx) {
-        DataWrapper *copiedMarker = new DataWrapper(COPIED);
+        DataWrapper *copiedMarker = new DataWrapper(COPIED_DEAD);
 
         Slot *slot = &mKvs[idx];
         auto key = slot->key();
@@ -289,13 +293,13 @@ class KeyValueStore {
                     ++mSize;
                     break;
                 }
-				// We saw an empty key but failed to CAS our key in.
-				// - Either another thread CAS'd its key in before us.
-				// - Or an earlier CAS is not yet visible to this thread.
-				// Either way we don't have up-to-date information on what
-				// key is stored in the current slot, meaning we need to 
-				// start again.
-				continue;
+                // We saw an empty key but failed to CAS our key in.
+                // - Either another thread CAS'd its key in before us.
+                // - Or an earlier CAS is not yet visible to this thread.
+                // Either way we don't have up-to-date information on what
+                // key is stored in the current slot, meaning we need to
+                // start again.
+                continue;
             }
 
             if (currentKey->data() == desiredKey->data()) {
