@@ -172,11 +172,33 @@ TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_DoubleResize) {
 
         threadedMapInsert(cmap, map, 100);
         EXPECT_EQ(cmap.bucket_count(), startingBucketCount * 4);
-		EXPECT_EQ(cmap, map);
+        EXPECT_EQ(cmap, map);
 
-		// assert that the depth is zero, ie that the originally smaller kvs
-		// got cleanup up.
-		EXPECT_EQ(cmap.depth(), 0);
+        // assert that the depth is zero, ie that the originally smaller kvs
+        // got cleanup up.
+        EXPECT_EQ(cmap.depth(), 0);
+    }
+}
+
+TEST(TestConcurrentUnorderedHashMap_MultiThread, Test_MaxLoadRatio) {
+    // We don't want to test resize here so make the number of elements here
+    // less than the starting capacity of the cmap.
+
+    for (int i = 0; i < 1000; i++) {
+        ConcurrentUnorderedMap cmap(5, 1.0);
+
+        const auto startingBucketCount = cmap.bucket_count() * 0.75;
+        // Make sure we pick a factor here higher than the load factor!
+        const auto map = createRandomMap(startingBucketCount);
+
+        threadedMapInsert(cmap, map, 2);
+        // Should only resize once, so bucket count should end up beng twice
+        // the starting bucket size.
+        EXPECT_EQ(cmap.bucket_count(), 32);
+        EXPECT_EQ(cmap, map);
+        // assert that the depth is zero, ie that the originally smaller kvs
+        // got cleanup up.
+        EXPECT_EQ(cmap.depth(), 0);
     }
 }
 

@@ -6,7 +6,7 @@
 #include <vector>
 
 typedef std::size_t size_t;
-const float MAX_LOAD_FACTOR = 0.5;
+const float DEFAULT_MAX_LOAD_RATIO = 0.5;
 const size_t COPY_CHUNK_SIZE = 8;
 
 enum DataState {
@@ -44,16 +44,16 @@ class Slot {
 
     bool casValue(const DataWrapper *expected, const DataWrapper *desired) {
         const auto success = mValue.compare_exchange_strong(expected, desired);
-		if (success)
-			delete expected;
-		return success;
+        if (success)
+            delete expected;
+        return success;
     }
 
     bool casKey(const DataWrapper *expected, const DataWrapper *desired) {
         const bool success = mKey.compare_exchange_strong(expected, desired);
-		if (success)
-			delete expected;
-		return success;
+        if (success)
+            delete expected;
+        return success;
     }
 
     const DataWrapper *key() const { return mKey.load(); }
@@ -72,7 +72,8 @@ inline int hash(const int key, const int capacity) {
 
 class KeyValueStore {
   public:
-    KeyValueStore(int size) : mKvs(std::vector<Slot>(size)) {}
+    KeyValueStore(int size, float maxLoadRatio)
+        : mKvs(std::vector<Slot>(size)), mMaxLoadRatio(maxLoadRatio) {}
 
     size_t size() const {
         size_t s = mSize;
@@ -180,7 +181,7 @@ class KeyValueStore {
         // You could check here if anybody else has already started a resize and
         // if so not allocate memory.
 
-        auto *ptr = new KeyValueStore(mKvs.size() * 2);
+        auto *ptr = new KeyValueStore(mKvs.size() * 2, mMaxLoadRatio);
         KeyValueStore *null_lvalue = nullptr;
         // Only thread should win the race and put the newKvs into place.
         if (!mNextKvs.compare_exchange_strong(null_lvalue, ptr)) {
@@ -223,7 +224,7 @@ class KeyValueStore {
         // key wasn't EMPTY so we need to forward the value into the new table.
         while (true) {
             auto value = slot->value();
-			auto data = value->data();
+            auto data = value->data();
 
             // Some assertions for my sanity.
             assert(!slot->key()->empty());
@@ -322,9 +323,7 @@ class KeyValueStore {
         return insertValue(slot, val.second);
     }
 
-    bool resizeRequired() const {
-        return size() > mKvs.size() * MAX_LOAD_FACTOR;
-    }
+    bool resizeRequired() const { return size() > mKvs.size() * mMaxLoadRatio; }
     size_t clip(const size_t slot) const {
         // TODO: Add comment here on how this works?
         return slot & (mKvs.size() - 1);
@@ -337,12 +336,14 @@ class KeyValueStore {
     std::atomic<size_t> mNumReaders = 0;
     // ZZZ: Why does this need to be volatile.
     volatile bool mCopied = false;
+    const float mMaxLoadRatio;
 };
 
 class ConcurrentUnorderedMap {
   public:
-    ConcurrentUnorderedMap(int exp = 5)
-        : mHeadKvs(new KeyValueStore(std::pow(2, exp))) {}
+    ConcurrentUnorderedMap(int exp = 5,
+                           float maxLoadRatio = DEFAULT_MAX_LOAD_RATIO)
+        : mHeadKvs(new KeyValueStore(std::pow(2, exp), maxLoadRatio)) {}
 
     int insert(const std::pair<int, int> &val) {
         tryUpdateKvsHead();
