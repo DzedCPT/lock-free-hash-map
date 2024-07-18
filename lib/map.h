@@ -3,6 +3,8 @@
 
 #include "kvs.h"
 #include <unordered_map>
+#include "kvs.h"
+#include "consts.h"
 
 namespace cmap {
 
@@ -13,7 +15,7 @@ class ConcurrentUnorderedMap {
                            float maxLoadRatio = DEFAULT_MAX_LOAD_RATIO);
 
     V insert(std::pair<K, V> const& val);
-    V at(K const key) const;
+    V at(K key) const;
     std::size_t bucket_count() const;
     std::size_t size() const;
     bool empty() const;

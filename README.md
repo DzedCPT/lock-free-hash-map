@@ -31,4 +31,6 @@ It achieves the above thanks to some clever use of the atomic CAS (compare and s
     - K, V: Key or Value data is in the slot.
     - X: the slot has been copied to the new table so gets and inserts need to move to the copy table. This is a way of avoiding new data coming into the old table after a given slot has been copied to a new table. 
     - T: A label to say this value has been deleted: ie a (Tombstone).
-    
+    - The resulting state machine for a key value pair (taken from the slides above) is:
+    <img width="669" alt="Screenshot 2024-07-07 at 21 22 47" src="https://github.com/DzedCPT/lock-free-hash-map/assets/90834269/2aa8283d-8eed-4cca-a5c9-fe437d03fab6">
+
