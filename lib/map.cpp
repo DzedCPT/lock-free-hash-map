@@ -1,4 +1,6 @@
 #include "map.h"
+#include "data_wrapper.h"
+#include "slot.h"
 #include <functional>
 #include <stdexcept>
 #include <unordered_map>
@@ -89,8 +91,6 @@ void ConcurrentUnorderedMap<K, V>::tryUpdateKvsHead() {
         }
     }
 }
-
-
 
 template class ConcurrentUnorderedMap<float, float>;
 template class ConcurrentUnorderedMap<int, int>;

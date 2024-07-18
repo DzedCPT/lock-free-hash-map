@@ -1,7 +1,5 @@
-//
-// Created by Jed Boyle on 15/07/2024.
-//
 
+#include <cstddef>
 #ifndef CONSTS_H
 #define CONSTS_H
 

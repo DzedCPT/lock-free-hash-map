@@ -1,5 +1,10 @@
-add_library(Map map.cpp
-        map.h
-        kvs.cpp
-        kvs.h
-        consts.h)
+add_library(
+	Map
+	map.cpp
+	map.h
+	kvs.h
+	kvs.cpp
+	slot.h
+	data_wrapper.h
+	consts.h
+)
