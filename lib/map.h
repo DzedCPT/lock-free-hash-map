@@ -1,15 +1,10 @@
 #ifndef MAP_H
 #define MAP_H
 
+#include "kvs.h"
 #include <unordered_map>
 
 namespace cmap {
-
-float const DEFAULT_MAX_LOAD_RATIO = 0.5;
-size_t const COPY_CHUNK_SIZE = 8;
-
-template <typename K, typename V>
-class KeyValueStore;
 
 template <typename K, typename V>
 class ConcurrentUnorderedMap {
