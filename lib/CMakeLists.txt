@@ -6,5 +6,6 @@ add_library(
 	kvs.cpp
 	slot.h
 	data_wrapper.h
+	atomic_kvs_ptr.h
 	consts.h
 )
