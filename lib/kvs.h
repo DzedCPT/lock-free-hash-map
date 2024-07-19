@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+#include "atomic_kvs_ptr.h"
 
 #ifndef KVS_H
 #define KVS_H
@@ -36,6 +37,9 @@ class KeyValueStore {
 
     V at(K const key);
 
+	// Should this be private?
+    SmartPointer<KeyValueStore<K, V>> mNextKvs;
+
    private:
     size_t hash(K const key) const;
 
@@ -63,7 +67,6 @@ class KeyValueStore {
 
     std::atomic<size_t> mSize{};
     std::vector<Slot<K, V>> mKvs;
-    std::atomic<KeyValueStore*> mNextKvs = nullptr;
     std::atomic<size_t> mCopyIdx;
     std::atomic<size_t> mNumReaders = 0;
     // mCopied doesn't need to be atomic because it's only every going to change

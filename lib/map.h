@@ -26,7 +26,7 @@ class ConcurrentUnorderedMap {
 
    private:
     void tryUpdateKvsHead();
-    AtomicKvsPtr<K, V> mHeadKvs;
+    SmartPointer<KeyValueStore<K, V>> mHeadKvs;
 };
 }  // namespace cmap
 

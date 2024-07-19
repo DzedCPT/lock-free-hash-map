@@ -1,8 +1,6 @@
-#include <atomic>
 
-#ifndef WRAPPER_H
-#define WRAPPER_H
-
+#include "gtest/gtest.h"
+#include <thread>
 
 template <typename T>
 class Data {
@@ -29,9 +27,10 @@ class SmartPointer {
         other.mPtr.load()->mRef++;
         mPtr.store(other.mPtr.load());
     }
-	bool isNull()const {
-		return mPtr.load() == nullptr;
-	}
+	SmartPointer& operator=(const SmartPointer& other) {
+        // Copy assignment implementation
+        return *this;
+    }
 
     // Destructor
     ~SmartPointer() {
@@ -51,9 +50,7 @@ class SmartPointer {
     }
 
     // Overload the -> operator
-    T* operator->() const { return mPtr.load()->mData; }
-
-
+    T* operator->() { return mPtr; }
 
     // Overload the * operator
     T& operator*() { return *mPtr; }
@@ -72,64 +69,52 @@ class SmartPointer {
     }
 };
 
-
-// #include <atomic>
-// #include <utility>
-// #include "kvs.h"
-//
-//
-// template <typename K, typename V>
-// class AtomicKvsPtr;
-//
-// template<typename K, typename V>
-// class Ptr {
-// public:
-//     explicit Ptr(AtomicKvsPtr<K, V>* kvs, KeyValueStore<K, V>*);
-//     ~Ptr();
-//     KeyValueStore<K, V>* ref();
-//     KeyValueStore<K, V>* mKvs;
-//     AtomicKvsPtr<K, V>* mAtomicPtr;
-// };
-//
-// template <typename K, typename V>
-// class AtomicKvsPtr {
-// public:
-//     explicit AtomicKvsPtr(KeyValueStore<K, V>* kvs): mKvs(kvs) {}
-//
-// 	Ptr<K, V> load() {
-// 		return Ptr<K, V>(this, mKvs);
-// 	}
-//
-//         // ZZZ: Maybe a better name for this would be const load?
-// 	KeyValueStore<K, V>* constLoad() const {
-// 		return mKvs;
-// 	}
-//
-// 	bool exchange(KeyValueStore<K, V>* expected, KeyValueStore<K, V>* desired) {
-// 		return mKvs.compare_exchange_strong(expected, desired);
-// 	}
-//
-//     std::atomic<KeyValueStore<K, V>*> mKvs;
-//     std::atomic<int> mRefCount{};
-// };
-//
-// template <typename K, typename V>
-// Ptr<K, V>::Ptr(AtomicKvsPtr<K, V>* kvs, KeyValueStore<K, V>* kvs2) : mKvs(kvs2), mAtomicPtr(kvs) {}
-//
-// template <typename K, typename V>
-// Ptr<K, V>::~Ptr() {
-//     // --mKvs->mRefCount;
-// }
-//
-// template <typename K, typename V>
-// KeyValueStore<K, V>* Ptr<K, V>::ref() {
-//     return mKvs;
+// TEST(Test, Test_CompareExchangeAvoidSegfault) {
+//     SmartPointer<int> x(new int(10));
+// 	// Copy the pointer to make sure things still work.
+//     auto y = x;
+//     // SmartPointer<int> y(new int(20));
+//     // auto x = new int(10)/* ; */
+//     // p.compare_exchange(p, y);
+//     // EXPECT_EQ(p.mPtr, y);
 // }
 
+// TEST(Test, Test_Something) {
+//     SmartPointer<int> p(new int(10));
+//     SmartPointer<int> y(new int(20));
+//     p.compare_exchange_strong(p, y);
+//     // EXPECT_EQ(p.mPtr, y);
+// }
+//
 
+struct TestStruct {
+    int x = 10;
+};
 
+void func(SmartPointer<TestStruct> ptr, int i) {
+    if (i == 0) {
+        SmartPointer<TestStruct> x(new TestStruct{20});
+        while (!ptr.compare_exchange_strong(ptr, x)) {
+        }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20 * i));
+}
 
-#endif  // WRAPPER_H
+TEST(Test, Test_Something) {
+    int nThreads = 10;
+    SmartPointer<TestStruct> p(new TestStruct());
+    std::vector<std::thread> threads(nThreads);
 
+    for (int i = 0; i < nThreads; i++) {
+        threads[i] = std::thread(func, p, i);
+    }
 
+    for (auto& t : threads) {
+        t.join();
+    }
+}
 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}

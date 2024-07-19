@@ -7,8 +7,8 @@ KeyValueStore<K, V>::KeyValueStore(size_t size, float maxLoadRatio)
 template <typename K, typename V>
 size_t KeyValueStore<K, V>::size() const {
     size_t s = mSize;
-    if (mNextKvs != nullptr) {
-        s += nextKvs()->size();
+    if (!mNextKvs.isNull()) {
+        s += mNextKvs->size();
     }
     return s;
 }
@@ -17,16 +17,16 @@ template <typename K, typename V>
 bool KeyValueStore<K, V>::empty() const {
     auto empty = mSize == 0;
     auto next_empty = true;
-    if (mNextKvs != nullptr) {
-        next_empty = nextKvs()->empty();
+    if (!mNextKvs.isNull()) {
+        next_empty = mNextKvs->empty();
     }
     return empty && next_empty;
 }
 
 template <typename K, typename V>
 size_t KeyValueStore<K, V>::bucket_count() const {
-    if (mNextKvs != nullptr) {
-        return nextKvs()->bucket_count();
+    if (!mNextKvs.isNull()) {
+        return mNextKvs->bucket_count();
     }
     return mKvs.size();
 }
@@ -41,7 +41,7 @@ void KeyValueStore<K, V>::erase(K const key) {
     if (eraseKvs(key)) {
         return;
     }
-    if (mNextKvs.load() != nullptr) mNextKvs.load()->erase(key);
+    if (!mNextKvs.isNull()) mNextKvs->erase(key);
 }
 
 template <typename K, typename V>
@@ -53,11 +53,11 @@ V KeyValueStore<K, V>::atKvs(K const key) {
         if (currentKeyValue->eval(key)) {
             auto value = slot.value();
             if (value->dead()) {
-                if (mNextKvs == nullptr) {
+                if (mNextKvs.isNull()) {
                     mNumReaders--;
                     throw std::out_of_range("Unable to find key");
                 } else {
-                    return nextKvs()->at(key);
+                    return mNextKvs->at(key);
                 }
             }
             // If value is empty, we're tyring to read from a slot that's
@@ -69,10 +69,10 @@ V KeyValueStore<K, V>::atKvs(K const key) {
             return value->data();
         }
         if (currentKeyValue->empty() || currentKeyValue->dead()) {
-            if (mNextKvs == nullptr) {
+            if (mNextKvs.isNull()) {
                 throw std::out_of_range("Unable to find key");
             } else {
-                auto result = nextKvs()->at(key);
+                auto result = mNextKvs->at(key);
                 return result;
             }
         }
@@ -81,10 +81,10 @@ V KeyValueStore<K, V>::atKvs(K const key) {
     assert(false);
 }
 
-template <typename K, typename V>
-KeyValueStore<K, V>* KeyValueStore<K, V>::nextKvs() const {
-    return mNextKvs.load();
-}
+// template <typename K, typename V>
+// KeyValueStore<K, V>* KeyValueStore<K, V>::mNextKvs const {
+//     return mNextKvs;
+// }
 
 template <typename K, typename V>
 bool KeyValueStore<K, V>::copied() const {
@@ -106,13 +106,15 @@ void KeyValueStore<K, V>::newKvs() {
     // You could check here if anybody else has already started a resize and
     // if so not allocate memory.
 
-    auto* ptr = new KeyValueStore(mKvs.size() * 2, mMaxLoadRatio);
-    KeyValueStore<K, V>* null_lvalue = nullptr;
+    auto ptr = SmartPointer<KeyValueStore<K, V>>(new KeyValueStore(mKvs.size() * 2, mMaxLoadRatio));
+    SmartPointer<KeyValueStore<K, V>> nullValue;
+
+
     // Only thread should win the race and put the newKvs into place.
-    if (!mNextKvs.compare_exchange_strong(null_lvalue, ptr)) {
+    if (!mNextKvs.compare_exchange_strong(nullValue, ptr)) {
         // Allocated for nothing, some other thread beat us,
         // so cleanup our mess.
-        delete ptr;
+        // delete ptr;
     }
 }
 
@@ -160,7 +162,7 @@ void KeyValueStore<K, V>::copySlot(size_t idx) {
         assert(!slot->key()->empty());
         assert(!slot->key()->dead());
         assert(value->state() != COPIED_DEAD);
-        assert(mNextKvs != nullptr);
+        assert(!mNextKvs.isNull());
 
         if (value->state() == TOMB_STONE) {
             delete valueCopiedMarker;
@@ -177,7 +179,7 @@ void KeyValueStore<K, V>::copySlot(size_t idx) {
         }
 
         if (slot->casValue(value, valueCopiedMarker)) {
-            nextKvs()->insert({key->data(), data}, COPIED_ALIVE);
+            mNextKvs->insert({key->data(), data}, COPIED_ALIVE);
             mSize--;
             return;
         }
@@ -355,11 +357,11 @@ V KeyValueStore<K, V>::insert(std::pair<K, V> const& val,
 
     // Resized table has been allocated so we should instead insert into
     // that.
-    if (mNextKvs != nullptr) {
+    if (!mNextKvs.isNull()) {
         // We ask each inserter to also do a little work copying data to the
         // new Kvs.
         copyBatch();
-        return nextKvs()->insert(val, valueState);
+        return mNextKvs->insert(val, valueState);
     }
 
     return insertKvs(val, valueState);
@@ -370,8 +372,8 @@ V KeyValueStore<K, V>::at(K const key) {
     if (mCopied) {
         // Not possible to be copied and not have a nextKvs, because
         // otherwise where did we copy everything into.
-        assert(mNextKvs != nullptr);
-        return nextKvs()->at(key);
+        assert(!mNextKvs.isNull());
+        return mNextKvs->at(key);
     }
 
     mNumReaders++;

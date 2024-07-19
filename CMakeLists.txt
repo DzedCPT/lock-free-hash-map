@@ -29,4 +29,13 @@ target_link_libraries(unit_test PRIVATE GTest::main)
 target_include_directories(unit_test PUBLIC "${PROJECT_SOURCE_DIR}/lib")
 target_link_libraries(unit_test PUBLIC Map)
 
+# add_compile_options(-fsanitize=leak)
+# add_compile_options(-ltcmalloc)
+# add_executable(ptr_test unit_tests/ptr.cpp)
+# target_link_libraries(ptr_test PRIVATE GTest::main "-fsanitize=leak")
+# target_link_libraries(ptr_test PRIVATE GTest::main)
+# target_include_directories(ptr_test PUBLIC "${PROJECT_SOURCE_DIR}/lib")
+# target_link_libraries(ptr_test PUBLIC Map)
+  # add_compile_options(-fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
+
 add_test(NAME AllTest COMMAND unit_test)
