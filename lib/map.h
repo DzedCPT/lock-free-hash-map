@@ -1,10 +1,10 @@
 #ifndef MAP_H
 #define MAP_H
 
-#include "consts.h"
 #include "kvs.h"
-#include "atomic_kvs_ptr.h"
 #include <unordered_map>
+#include "kvs.h"
+#include "consts.h"
 
 namespace cmap {
 
@@ -15,18 +15,18 @@ class ConcurrentUnorderedMap {
                            float maxLoadRatio = DEFAULT_MAX_LOAD_RATIO);
 
     V insert(std::pair<K, V> const& val);
-    V at(K key);
-    std::size_t bucket_count();
+    V at(K key) const;
+    std::size_t bucket_count() const;
     std::size_t size() const;
-    bool empty();
-    std::size_t depth();
+    bool empty() const;
+    std::size_t depth() const;
 
     bool operator==(std::unordered_map<K, V> const& other) const;
     void erase(K const key);
 
    private:
     void tryUpdateKvsHead();
-    AtomicKvsPtr<K, V> mHeadKvs;
+    std::atomic<KeyValueStore<K, V>*> mHeadKvs;
 };
 }  // namespace cmap
 

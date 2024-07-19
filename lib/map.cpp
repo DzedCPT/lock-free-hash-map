@@ -1,11 +1,11 @@
 #include "map.h"
 #include "data_wrapper.h"
-#include "kvs.h"
 #include "slot.h"
 #include <functional>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+#include "kvs.h"
 
 namespace cmap {
 
@@ -22,28 +22,28 @@ V ConcurrentUnorderedMap<K, V>::insert(std::pair<K, V> const& val) {
     return mHeadKvs.load()->insert(val);
 }
 template <typename K, typename V>
-V ConcurrentUnorderedMap<K, V>::at(K const key) {
+V ConcurrentUnorderedMap<K, V>::at(const K key) const {
     return mHeadKvs.load()->at(key);
 }
 template <typename K, typename V>
-size_t ConcurrentUnorderedMap<K, V>::bucket_count() {
+size_t ConcurrentUnorderedMap<K, V>::bucket_count() const {
     return mHeadKvs.load()->bucket_count();
 }
 
 template <typename K, typename V>
 size_t ConcurrentUnorderedMap<K, V>::size() const {
-    return mHeadKvs.constLoad()->size();
+    return mHeadKvs.load()->size();
 }
 
 template <typename K, typename V>
-bool ConcurrentUnorderedMap<K, V>::empty() {
+bool ConcurrentUnorderedMap<K, V>::empty() const {
     return mHeadKvs.load()->empty();
 }
 
 template <typename K, typename V>
-size_t ConcurrentUnorderedMap<K, V>::depth() {
+size_t ConcurrentUnorderedMap<K, V>::depth() const {
     size_t depth = 0;
-    KeyValueStore<K, V>* kvs = mHeadKvs.load();
+    KeyValueStore<K, V>* kvs = mHeadKvs;
     while (true) {
         if (kvs->nextKvs() == nullptr) {
             break;
@@ -60,7 +60,7 @@ bool ConcurrentUnorderedMap<K, V>::operator==(
 
     for (auto const& pair : other) {
         try {
-            if (mHeadKvs.constLoad()->at(pair.first) != pair.second) {
+            if (mHeadKvs.load()->at(pair.first) != pair.second) {
                 return false;
             }
 
@@ -83,11 +83,11 @@ void ConcurrentUnorderedMap<K, V>::tryUpdateKvsHead() {
     auto nextKvs = headKvs->nextKvs();
     if (nextKvs != nullptr && headKvs->copied() &&
         !headKvs->hasActiveReaders()) {
-        if (mHeadKvs.exchange(headKvs, nextKvs)) {
-        // We won so it's out responsibility to clean up the old Kvs
-        // TODO NB: Will need to put this back, but currently it creates
-        // segfault sometimes. delete headValue;/* ; */
-        // delete mHeadKvs.load();
+        if (mHeadKvs.compare_exchange_strong(headKvs, nextKvs)) {
+            // We won so it's out responsibility to clean up the old Kvs
+            // TODO NB: Will need to put this back, but currently it creates
+            // segfault sometimes. delete headValue;/* ; */
+            // delete mHeadKvs.load();
         }
     }
 }
